@@ -1,0 +1,31 @@
+{
+  "name": "adrift-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "migrate": "tsx src/db/migrate.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.54.0",
+    "@fastify/cors": "^10.0.2",
+    "@fastify/jwt": "^9.1.0",
+    "@types/bcryptjs": "^2.4.6",
+    "bcryptjs": "^3.0.3",
+    "bullmq": "^5.45.0",
+    "dotenv": "^16.5.0",
+    "fastify": "^5.4.0",
+    "node-cron": "^3.0.3",
+    "pg": "^8.14.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.29",
+    "@types/node-cron": "^3.0.11",
+    "@types/pg": "^8.11.13",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}
