@@ -83,7 +83,7 @@ export async function authRoutes(app: FastifyInstance) {
       const { email, password } = req.body;
 
       const { rows } = await pool.query(
-        'SELECT id, email, password_hash, ban_status FROM users WHERE email = $1',
+        'SELECT id, email, password_hash, ban_status, role FROM users WHERE email = $1',
         [email.toLowerCase()],
       );
 
@@ -114,9 +114,9 @@ export async function authRoutes(app: FastifyInstance) {
         [loginCountry, user.id],
       );
 
-      const token = app.jwt.sign({ id: user.id, email: user.email, country: loginCountry });
+      const token = app.jwt.sign({ id: user.id, email: user.email, country: loginCountry, role: user.role });
 
-      return reply.send({ token, user: { id: user.id, email: user.email, country: loginCountry } });
+      return reply.send({ token, user: { id: user.id, email: user.email, country: loginCountry, role: user.role } });
     },
   );
 

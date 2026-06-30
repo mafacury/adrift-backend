@@ -5,6 +5,7 @@ import { config } from './config/index.js';
 import { authRoutes } from './routes/auth.js';
 import { boatRoutes } from './routes/boats.js';
 import { userRoutes } from './routes/users.js';
+import { adminRoutes } from './routes/admin.js';
 import { startModerationWorker } from './workers/moderation.worker.js';
 import { startRoutingWorker } from './workers/routing.worker.js';
 import { startScheduler } from './services/scheduler.js';
@@ -30,6 +31,7 @@ app.addHook('preHandler', async (req) => {
 await app.register(authRoutes);
 await app.register(boatRoutes);
 await app.register(userRoutes);
+await app.register(adminRoutes);
 
 // Health check
 app.get('/health', async () => ({ status: 'ok' }));
