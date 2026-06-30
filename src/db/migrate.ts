@@ -4,6 +4,10 @@ import { fileURLToPath } from 'url';
 import { pool } from './pool.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// Funciona tanto com "tsx src/db/migrate.ts" quanto com "node dist/db/migrate.js"
+// pois ambos ficam dois níveis abaixo da raiz do projeto
+const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
+const MIGRATIONS_DIR = path.join(PROJECT_ROOT, 'src', 'db', 'migrations');
 
 async function migrate() {
   await pool.query(`
@@ -13,7 +17,7 @@ async function migrate() {
     )
   `);
 
-  const dir = path.join(__dirname, 'migrations');
+  const dir = MIGRATIONS_DIR;
   const files = fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
 
   for (const file of files) {
