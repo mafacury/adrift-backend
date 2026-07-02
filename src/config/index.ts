@@ -29,7 +29,7 @@ export const config = {
 
   boat: {
     maxIgnoresPerUser: int('MAX_IGNORES_PER_USER', 2),
-    queueTimeoutMinutes: int('QUEUE_TIMEOUT_MINUTES', 10),
+    queueTimeoutMinutes: int('QUEUE_TIMEOUT_MINUTES', 720), // 12h — o receptor tem meio dia para responder
     boatIdleDays: int('BOAT_IDLE_DAYS', 30),
     minReportsToPause: int('MIN_REPORTS_TO_PAUSE', 3),
   },
