@@ -6,6 +6,7 @@ import { authRoutes } from './routes/auth.js';
 import { boatRoutes } from './routes/boats.js';
 import { userRoutes } from './routes/users.js';
 import { adminRoutes } from './routes/admin.js';
+import { demoRoutes } from './routes/demo.js';
 import { startModerationWorker } from './workers/moderation.worker.js';
 import { startRoutingWorker } from './workers/routing.worker.js';
 import { startScheduler } from './services/scheduler.js';
@@ -32,6 +33,7 @@ await app.register(authRoutes);
 await app.register(boatRoutes);
 await app.register(userRoutes);
 await app.register(adminRoutes);
+await app.register(demoRoutes); // TEMPORÁRIO — remover em produção
 
 // Health check
 app.get('/health', async () => ({ status: 'ok' }));

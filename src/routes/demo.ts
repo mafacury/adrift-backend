@@ -1,0 +1,143 @@
+import { FastifyInstance } from 'fastify';
+import { pool } from '../db/pool.js';
+
+/**
+ * Rota TEMPORÁRIA de demonstração.
+ * POST /demo/boat — cria um barco de teste (vindo de usuários virtuais)
+ * e o coloca imediatamente na fila do usuário logado, para validar o
+ * funcionamento da tela Jornada.
+ *
+ * Remover este arquivo (e o register em index.ts) quando o app entrar
+ * em produção de verdade.
+ */
+
+const DEMO_BOTS = [
+  { email: 'marina.silva@adrift.bot',  oauthId: 'bot-marina' },
+  { email: 'james.ocean@adrift.bot',   oauthId: 'bot-james'  },
+  { email: 'yuki.waves@adrift.bot',    oauthId: 'bot-yuki'   },
+  { email: 'sofia.mares@adrift.bot',   oauthId: 'bot-sofia'  },
+  { email: 'kwame.akosua@adrift.bot',  oauthId: 'bot-kwame'  },
+];
+
+// Pool de mensagens por país — cada barco demo sorteia um trajeto diferente
+const MESSAGE_POOL: { country: string; content: string }[] = [
+  { country: 'BR', content: 'Do Rio de Janeiro para o mundo: que este barquinho leve um pouco do calor daqui. Se você está lendo, um abraço brasileiro!' },
+  { country: 'BR', content: 'Recife, Brasil. O mar daqui é morno e generoso. Desejo que sua semana seja igual. Segue viagem, barquinho!' },
+  { country: 'PT', content: 'De Lisboa, com saudade — essa palavra que só nós temos. Que ela chegue a quem precisar entender o que sente.' },
+  { country: 'US', content: 'Greetings from Seattle! Rainy day here, but this little boat just made it brighter. Passing it on with good vibes.' },
+  { country: 'US', content: 'New York checking in. Eight million people here, and somehow this message found me. The universe is funny like that.' },
+  { country: 'JP', content: '大阪から愛を込めて。この船が世界中を旅していることに感動しました。(De Osaka com amor. Estou emocionado com a viagem deste barco.)' },
+  { country: 'ES', content: 'Barcelona te saluda, navegante. El Mediterráneo despide a este barquito con un atardecer naranja precioso.' },
+  { country: 'FR', content: 'Bonjour de Marseille ! Ce petit bateau a traversé tant de mers... Je lui souhaite bon vent et bonne mer.' },
+  { country: 'IT', content: 'Ciao dal porto di Genova! Qui Colombo sognava oceani. Che questo messaggio arrivi più lontano dei suoi sogni.' },
+  { country: 'AU', content: 'Sydney says hi! This boat crossed the entire Pacific to get here. Respect, little sailor. Onward you go!' },
+  { country: 'NG', content: 'Lagos, Nigeria — the heartbeat of Africa. This ocean connects all of us. Sending this forward with hope and joy.' },
+  { country: 'ZA', content: 'Cape Town here, where two oceans meet. May this boat find calm waters and kind readers ahead.' },
+  { country: 'CA', content: 'From Vancouver with maple syrup and good intentions. This message travelled far — help it travel further!' },
+  { country: 'AR', content: 'Buenos Aires te manda un tango en forma de mensaje. Que este barquito baile sobre las olas hasta el próximo puerto.' },
+  { country: 'MX', content: '¡Hola desde Cancún! El Caribe está precioso hoy. Este barquito merece seguir viajando. ¡Buen viento!' },
+  { country: 'IN', content: 'Namaste from Mumbai! The Arabian Sea carries many stories — now it carries yours too. Safe travels, little boat.' },
+  { country: 'KR', content: '부산에서 인사드립니다! 이 작은 배가 얼마나 멀리 왔는지 놀랍습니다. (Saudações de Busan! Impressionante o quanto este barquinho viajou.)' },
+  { country: 'NZ', content: 'Kia ora from Auckland! End of the world down here, but your message made it. Nothing is too far away after all.' },
+  { country: 'GB', content: 'London calling! Grey skies, warm tea, and a lovely surprise: your boat docked here. Sending it on with a smile.' },
+  { country: 'DE', content: 'Grüße aus Hamburg, der Stadt der Häfen! Dein Boot hat hier kurz angelegt und segelt jetzt weiter. Gute Reise!' },
+];
+
+function pickRandom<T>(arr: T[], n: number): T[] {
+  const copy = [...arr];
+  const out: T[] = [];
+  while (out.length < n && copy.length > 0) {
+    out.push(copy.splice(Math.floor(Math.random() * copy.length), 1)[0]);
+  }
+  return out;
+}
+
+export async function demoRoutes(app: FastifyInstance) {
+  app.post('/demo/boat', {}, async (req, reply) => {
+    const userId = (req as any).user?.id;
+    if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+
+    // 1. Garantir que os bots existem (inativos como receptores)
+    const botIds: string[] = [];
+    for (const bot of DEMO_BOTS) {
+      const { rows } = await pool.query(
+        `INSERT INTO users (email, oauth_provider, oauth_id, reputation_score, ban_status, last_active_at)
+         VALUES ($1, 'bot', $2, 100, 'active', '2020-01-01'::timestamptz)
+         ON CONFLICT (email) DO UPDATE SET last_active_at = '2020-01-01'::timestamptz
+         RETURNING id`,
+        [bot.email, bot.oauthId],
+      );
+      botIds.push(rows[0].id);
+    }
+
+    // 2. Sortear trajeto: 2 a 4 mensagens de países distintos
+    const hopCount = 2 + Math.floor(Math.random() * 3);
+    const messages = pickRandom(MESSAGE_POOL, hopCount);
+    const countries = [...new Set(messages.map(m => m.country))];
+    const stage = countries.length >= 4 ? 2 : 1;
+
+    await pool.query('BEGIN');
+    try {
+      const creatorId = botIds[Math.floor(Math.random() * botIds.length)];
+      const daysTotal = hopCount * 2;
+
+      const { rows: [{ id: boatId }] } = await pool.query(
+        `INSERT INTO boats (creator_user_id, status, stage, unique_countries, created_at, last_hop_at)
+         VALUES ($1, 'active', $2, $3, NOW() - ($4 || ' days')::INTERVAL, NOW() - INTERVAL '1 day')
+         RETURNING id`,
+        [creatorId, stage, countries.length, daysTotal],
+      );
+
+      let prevUserId: string | null = null;
+      for (let i = 0; i < messages.length; i++) {
+        const msg = messages[i];
+        const botId = botIds[(i + 1) % botIds.length];
+        const daysAgo = daysTotal - i * 2;
+
+        const { rows: [{ id: msgId }] } = await pool.query(
+          `INSERT INTO boat_messages (boat_id, user_id, content, country_code, created_at)
+           VALUES ($1, $2, $3, $4, NOW() - ($5 || ' days')::INTERVAL)
+           RETURNING id`,
+          [boatId, botId, msg.content, msg.country, daysAgo],
+        );
+
+        if (prevUserId !== null) {
+          await pool.query(
+            `INSERT INTO boat_hops (boat_id, from_user_id, to_user_id, country_code, message_id, hopped_at)
+             VALUES ($1, $2, $3, $4, $5, NOW() - ($6 || ' days')::INTERVAL)`,
+            [boatId, prevUserId, botId, msg.country, msgId, daysAgo],
+          );
+        }
+        await pool.query(
+          `INSERT INTO boat_countries (boat_id, country_code) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [boatId, msg.country],
+        );
+        await pool.query(
+          `INSERT INTO boat_country_interactions (boat_id, country_code, user_id)
+           VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+          [boatId, msg.country, botId],
+        );
+        prevUserId = botId;
+      }
+
+      await pool.query('COMMIT');
+
+      // 3. Colocar na fila do usuário logado (expira em 7 dias)
+      await pool.query(
+        `INSERT INTO receiver_queue (boat_id, user_id, expires_at, status)
+         VALUES ($1, $2, NOW() + INTERVAL '7 days', 'pending')`,
+        [boatId, userId],
+      );
+
+      return reply.send({
+        status: 'created',
+        boatId,
+        countries,
+        messages: messages.length,
+      });
+    } catch (err) {
+      await pool.query('ROLLBACK');
+      throw err;
+    }
+  });
+}
