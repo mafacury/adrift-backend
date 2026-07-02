@@ -7,8 +7,6 @@ import { boatRoutes } from './routes/boats.js';
 import { userRoutes } from './routes/users.js';
 import { adminRoutes } from './routes/admin.js';
 import { demoRoutes } from './routes/demo.js';
-import { startModerationWorker } from './workers/moderation.worker.js';
-import { startRoutingWorker } from './workers/routing.worker.js';
 import { startScheduler } from './services/scheduler.js';
 
 const app = Fastify({ logger: true, trustProxy: true });
@@ -38,9 +36,7 @@ await app.register(demoRoutes); // TEMPORÁRIO — remover em produção
 // Health check
 app.get('/health', async () => ({ status: 'ok' }));
 
-// Start workers + scheduler
-startModerationWorker();
-startRoutingWorker();
+// Start scheduler (moderação e roteamento rodam inline — sem Redis)
 startScheduler();
 
 // Start server

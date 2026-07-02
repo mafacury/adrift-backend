@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { pool } from '../db/pool.js';
-import { routingQueue } from '../config/redis.js';
+import { processRouting, sweepStrandedBoats } from './process.js';
 import { config } from '../config/index.js';
 
 export function startScheduler() {
@@ -16,7 +16,7 @@ export function startScheduler() {
       );
 
       for (const row of rows) {
-        await routingQueue.add('route-boat', { boatId: row.boat_id, fromUserId: null });
+        await processRouting({ boatId: row.boat_id, fromUserId: null });
       }
 
       if (rows.length > 0) {
@@ -26,6 +26,9 @@ export function startScheduler() {
       console.error('[scheduler] queue-expiry error', err);
     }
   });
+
+  // Every 15 min: re-route boats stranded without a pending queue entry
+  cron.schedule('*/15 * * * *', sweepStrandedBoats);
 
   // Daily at 02:00 UTC: archive boats idle for BOAT_IDLE_DAYS
   cron.schedule('0 2 * * *', async () => {
@@ -51,5 +54,5 @@ export function startScheduler() {
     }
   });
 
-  console.log('[scheduler] started');
+  console.log('[scheduler] started (inline processing, no Redis)');
 }

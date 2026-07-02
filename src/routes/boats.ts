@@ -1,7 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { pool } from '../db/pool.js';
-import { moderationQueue } from '../config/redis.js';
-import { routingQueue } from '../config/redis.js';
+import { processModeration, processRouting } from '../services/process.js';
 import { countryFromIp } from '../services/geo.js';
 import { config } from '../config/index.js';
 
@@ -46,14 +45,8 @@ export async function boatRoutes(app: FastifyInstance) {
 
         await pool.query('COMMIT');
 
-        // Enqueue moderation
-        await moderationQueue.add('moderate', {
-          boatId,
-          messageId,
-          content,
-          userId,
-          countryCode,
-        });
+        // Moderação roda em background — resposta não espera
+        void processModeration({ boatId, messageId, content, userId, countryCode });
 
         return reply.code(202).send({
           boatId,
@@ -160,17 +153,11 @@ export async function boatRoutes(app: FastifyInstance) {
         await pool.query('COMMIT');
 
         if (content && messageId) {
-          // If there's new content, run moderation before routing
-          await moderationQueue.add('moderate', {
-            boatId,
-            messageId,
-            content,
-            userId,
-            countryCode,
-          });
+          // Nova mensagem — modera antes de rotear (em background)
+          void processModeration({ boatId, messageId, content, userId, countryCode });
         } else {
-          // No new content — go straight to routing
-          await routingQueue.add('route-boat', { boatId, fromUserId: userId });
+          // Sem mensagem nova — rotear direto (em background)
+          void processRouting({ boatId, fromUserId: userId });
         }
 
         return reply.send({ status: 'sailing' });
@@ -210,8 +197,8 @@ export async function boatRoutes(app: FastifyInstance) {
 
         await pool.query('COMMIT');
 
-        // Re-route to someone else
-        await routingQueue.add('route-boat', { boatId, fromUserId: null });
+        // Re-route to someone else (em background)
+        void processRouting({ boatId, fromUserId: null });
 
         return reply.send({ status: 'ignored' });
       } catch (err) {
