@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { pool } from '../db/pool.js';
 import { processRouting, sweepStrandedBoats } from './process.js';
+import { botRespondSweep } from './bots.js';
 import { config } from '../config/index.js';
 
 export function startScheduler() {
@@ -26,6 +27,9 @@ export function startScheduler() {
       console.error('[scheduler] queue-expiry error', err);
     }
   });
+
+  // Every minute: bots respond to boats waiting in their queues
+  cron.schedule('* * * * *', botRespondSweep);
 
   // Every 15 min: re-route boats stranded without a pending queue entry
   cron.schedule('*/15 * * * *', sweepStrandedBoats);

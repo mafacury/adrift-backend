@@ -24,6 +24,8 @@ export async function pickNextReceiver(
         AND u.id NOT IN (
           SELECT to_user_id FROM boat_hops WHERE boat_id = $1
         )
+        -- never back to the creator
+        AND u.id != (SELECT creator_user_id FROM boats WHERE id = $1)
         -- ignore limit not reached
         AND (
           SELECT COALESCE(SUM(count), 0)

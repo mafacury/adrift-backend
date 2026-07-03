@@ -8,6 +8,7 @@ import { userRoutes } from './routes/users.js';
 import { adminRoutes } from './routes/admin.js';
 import { demoRoutes } from './routes/demo.js';
 import { startScheduler } from './services/scheduler.js';
+import { ensureBots } from './services/bots.js';
 
 const app = Fastify({ logger: true, trustProxy: true });
 
@@ -38,6 +39,9 @@ app.get('/health', async () => ({ status: 'ok' }));
 
 // Start scheduler (moderação e roteamento rodam inline — sem Redis)
 startScheduler();
+
+// Garante os usuários virtuais espalhados pelo mundo (receptores automáticos)
+void ensureBots().catch(console.error);
 
 // Start server
 const host = '0.0.0.0';

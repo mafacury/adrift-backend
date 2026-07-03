@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { pool } from '../db/pool.js';
+import { ensureBots } from '../services/bots.js';
 
 /**
  * Rota TEMPORÁRIA de demonstração.
@@ -10,14 +11,6 @@ import { pool } from '../db/pool.js';
  * Remover este arquivo (e o register em index.ts) quando o app entrar
  * em produção de verdade.
  */
-
-const DEMO_BOTS = [
-  { email: 'marina.silva@adrift.bot',  oauthId: 'bot-marina' },
-  { email: 'james.ocean@adrift.bot',   oauthId: 'bot-james'  },
-  { email: 'yuki.waves@adrift.bot',    oauthId: 'bot-yuki'   },
-  { email: 'sofia.mares@adrift.bot',   oauthId: 'bot-sofia'  },
-  { email: 'kwame.akosua@adrift.bot',  oauthId: 'bot-kwame'  },
-];
 
 // Pool de mensagens por país — cada barco demo sorteia um trajeto diferente
 const MESSAGE_POOL: { country: string; content: string }[] = [
@@ -57,18 +50,8 @@ export async function demoRoutes(app: FastifyInstance) {
     const userId = (req as any).user?.id;
     if (!userId) return reply.code(401).send({ error: 'unauthorized' });
 
-    // 1. Garantir que os bots existem (inativos como receptores)
-    const botIds: string[] = [];
-    for (const bot of DEMO_BOTS) {
-      const { rows } = await pool.query(
-        `INSERT INTO users (email, oauth_provider, oauth_id, reputation_score, ban_status, last_active_at)
-         VALUES ($1, 'bot', $2, 100, 'active', '2020-01-01'::timestamptz)
-         ON CONFLICT (email) DO UPDATE SET last_active_at = '2020-01-01'::timestamptz
-         RETURNING id`,
-        [bot.email, bot.oauthId],
-      );
-      botIds.push(rows[0].id);
-    }
+    // 1. Garantir que os bots existem (ativos — eles também recebem barcos)
+    const botIds = [...(await ensureBots()).values()];
 
     // 2. Sortear trajeto: 2 a 4 mensagens de países distintos
     const hopCount = 2 + Math.floor(Math.random() * 3);
