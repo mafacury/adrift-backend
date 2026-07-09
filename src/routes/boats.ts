@@ -3,6 +3,7 @@ import { pool } from '../db/pool.js';
 import { processModeration, processRouting } from '../services/process.js';
 import { countryFromIp } from '../services/geo.js';
 import { userOwnsGift } from '../services/gifts.js';
+import { sendPushToUser, boatGiftMessage } from '../services/push.js';
 import { config } from '../config/index.js';
 
 interface CreateBoatBody {
@@ -162,6 +163,18 @@ export async function boatRoutes(app: FastifyInstance) {
         );
 
         await pool.query('COMMIT');
+
+        // Deixou um presente? Avisa o criador do barco (se não for ele mesmo).
+        if (gift) {
+          const { rows: cr } = await pool.query(
+            `SELECT creator_user_id FROM boats WHERE id = $1`, [boatId],
+          );
+          const creatorId = cr[0]?.creator_user_id;
+          if (creatorId && creatorId !== userId) {
+            const msg = boatGiftMessage();
+            void sendPushToUser(creatorId, msg.title, msg.body);
+          }
+        }
 
         if (content && messageId) {
           // Nova mensagem — modera antes de rotear (em background)

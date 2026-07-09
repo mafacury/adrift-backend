@@ -159,6 +159,45 @@ export async function userRoutes(app: FastifyInstance) {
     },
   );
 
+  // ── GET /users/me/boat-gifts ───────────────────────────────────────────────
+  // Presentes novos deixados nos barcos que EU criei (aviso ao criador)
+  app.get(
+    '/users/me/boat-gifts',
+    {},
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+
+      const { rows } = await pool.query(
+        `WITH me AS (SELECT gifts_seen_at FROM users WHERE id = $1)
+         SELECT
+           (SELECT COUNT(*)::int
+              FROM boat_messages bm JOIN boats b ON b.id = bm.boat_id, me
+             WHERE b.creator_user_id = $1 AND bm.gift_id IS NOT NULL
+               AND bm.user_id <> $1 AND bm.created_at > me.gifts_seen_at) AS count,
+           (SELECT bm.boat_id
+              FROM boat_messages bm JOIN boats b ON b.id = bm.boat_id, me
+             WHERE b.creator_user_id = $1 AND bm.gift_id IS NOT NULL
+               AND bm.user_id <> $1 AND bm.created_at > me.gifts_seen_at
+             ORDER BY bm.created_at DESC LIMIT 1) AS latest_boat_id`,
+        [userId],
+      );
+      return reply.send({ count: rows[0]?.count ?? 0, latestBoatId: rows[0]?.latest_boat_id ?? null });
+    },
+  );
+
+  // ── POST /users/me/boat-gifts/ack ──────────────────────────────────────────
+  app.post(
+    '/users/me/boat-gifts/ack',
+    {},
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+      await pool.query(`UPDATE users SET gifts_seen_at = NOW() WHERE id = $1`, [userId]);
+      return reply.send({ status: 'ok' });
+    },
+  );
+
   // ── POST /users/me/missed/ack ──────────────────────────────────────────────
   // Usuário viu o aviso — zera a contagem
   app.post(

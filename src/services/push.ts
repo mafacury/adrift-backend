@@ -44,6 +44,14 @@ export async function sendPushToUser(userId: string, title: string, body: string
   }
 }
 
+/** Aviso ao criador de que seu barco recebeu um presente. */
+export function boatGiftMessage(): { title: string; body: string } {
+  return {
+    title: '🎁 Seu barco recebeu um presente!',
+    body: 'Seu barco está indo muito bem e acaba de receber um presente. Veja a jornada dele!',
+  };
+}
+
 /** Mensagem padrão de barco chegando, com o prazo real da fila. */
 export function boatArrivedMessage(): { title: string; body: string } {
   const mins = config.boat.queueTimeoutMinutes;
