@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { pool } from '../db/pool.js';
 import { getAchievementsForUser } from '../services/achievements.js';
+import { getGiftsForUser } from '../services/gifts.js';
 
 export async function userRoutes(app: FastifyInstance) {
   // ── GET /users/me/achievements ─────────────────────────────────────────────
@@ -11,6 +12,18 @@ export async function userRoutes(app: FastifyInstance) {
       const userId = (req as any).user?.id;
       if (!userId) return reply.code(401).send({ error: 'unauthorized' });
       const data = await getAchievementsForUser(userId);
+      return reply.send(data);
+    },
+  );
+
+  // ── GET /users/me/gifts ────────────────────────────────────────────────────
+  app.get(
+    '/users/me/gifts',
+    {},
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+      const data = await getGiftsForUser(userId);
       return reply.send(data);
     },
   );
