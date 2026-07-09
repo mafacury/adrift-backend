@@ -101,4 +101,43 @@ export async function userRoutes(app: FastifyInstance) {
       return reply.send({ boat: rows[0] ?? null });
     },
   );
+
+  // ── GET /users/me/missed ───────────────────────────────────────────────────
+  // Quantos barcos passaram (expiraram na fila) desde o último "visto"
+  app.get(
+    '/users/me/missed',
+    {},
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+
+      const { rows } = await pool.query(
+        `SELECT COUNT(*)::int AS count
+         FROM receiver_queue rq
+         JOIN users u ON u.id = rq.user_id
+         WHERE rq.user_id = $1
+           AND rq.status = 'expired'
+           AND rq.expires_at > u.missed_seen_at`,
+        [userId],
+      );
+      return reply.send({ count: rows[0]?.count ?? 0 });
+    },
+  );
+
+  // ── POST /users/me/missed/ack ──────────────────────────────────────────────
+  // Usuário viu o aviso — zera a contagem
+  app.post(
+    '/users/me/missed/ack',
+    {},
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+
+      await pool.query(
+        `UPDATE users SET missed_seen_at = NOW() WHERE id = $1`,
+        [userId],
+      );
+      return reply.send({ status: 'ok' });
+    },
+  );
 }
