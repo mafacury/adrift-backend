@@ -2,6 +2,25 @@ import { FastifyInstance } from 'fastify';
 import { pool } from '../db/pool.js';
 
 export async function userRoutes(app: FastifyInstance) {
+  // ── POST /users/me/push-token ─────────────────────────────────────────────
+  // O app registra aqui seu token do Expo Push (Android/iOS)
+  app.post<{ Body: { token: string } }>(
+    '/users/me/push-token',
+    { schema: { body: { type: 'object', required: ['token'], properties: {
+      token: { type: 'string', minLength: 10, maxLength: 200 },
+    } } } },
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+
+      await pool.query(
+        `UPDATE users SET fcm_token = $1 WHERE id = $2`,
+        [req.body.token, userId],
+      );
+      return reply.send({ status: 'ok' });
+    },
+  );
+
   // ── GET /users/me/boats ────────────────────────────────────────────────────
   app.get(
     '/users/me/boats',

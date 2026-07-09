@@ -114,9 +114,10 @@ export async function ensureBots(): Promise<Map<string, string>> {
 }
 
 /**
- * Sweep do motor de bots: responde barcos pendentes na fila de bots há
- * mais de 2 minutos — adiciona mensagem do país do bot, registra o hop
- * e manda o barco para o próximo receptor.
+ * Sweep do motor de bots: cada barco na fila de um bot ganha um "tempo de
+ * resposta humano" aleatório entre 30 min e 4 h. O sorteio é determinístico
+ * por entrada da fila (hash do id), então não precisa de coluna nova e o
+ * mesmo barco sempre tem o mesmo prazo.
  */
 export async function botRespondSweep(): Promise<void> {
   try {
@@ -126,7 +127,8 @@ export async function botRespondSweep(): Promise<void> {
        JOIN users u ON u.id = rq.user_id
        WHERE rq.status = 'pending'
          AND u.oauth_provider = 'bot'
-         AND rq.queued_at < NOW() - INTERVAL '2 minutes'
+         -- prazo aleatório 30..240 min, estável por entrada
+         AND rq.queued_at < NOW() - ((30 + ABS(HASHTEXT(rq.id::text)) % 211) || ' minutes')::interval
        LIMIT 20`,
     );
     if (entries.length === 0) return;

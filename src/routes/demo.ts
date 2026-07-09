@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { pool } from '../db/pool.js';
 import { ensureBots } from '../services/bots.js';
+import { sendPushToUser, boatArrivedMessage } from '../services/push.js';
 
 /**
  * Rota TEMPORÁRIA de demonstração.
@@ -111,6 +112,10 @@ export async function demoRoutes(app: FastifyInstance) {
          VALUES ($1, $2, NOW() + INTERVAL '7 days', 'pending')`,
         [boatId, userId],
       );
+
+      // notificação de chegada (útil para testar o push)
+      const { title, body } = boatArrivedMessage();
+      void sendPushToUser(userId, title, body);
 
       return reply.send({
         status: 'created',

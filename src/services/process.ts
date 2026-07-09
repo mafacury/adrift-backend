@@ -1,6 +1,7 @@
 import { pool } from '../db/pool.js';
 import { moderate } from './moderation.js';
 import { config } from '../config/index.js';
+import { sendPushToUser, boatArrivedMessage } from './push.js';
 import {
   pickNextReceiver,
   enqueueForReceiver,
@@ -84,6 +85,10 @@ export async function processRouting(data: RoutingData): Promise<void> {
 
     await enqueueForReceiver(boatId, nextUserId);
     console.log(`[routing] boat ${boatId} → user ${nextUserId}`);
+
+    // avisa o receptor (bots não têm token — o envio é ignorado)
+    const { title, body } = boatArrivedMessage();
+    void sendPushToUser(nextUserId, title, body);
   } catch (err) {
     console.error(`[routing] boat ${boatId} failed:`, err);
   }
