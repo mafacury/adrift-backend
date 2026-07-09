@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { pool } from '../db/pool.js';
 import { getAchievementsForUser } from '../services/achievements.js';
-import { getGiftsForUser } from '../services/gifts.js';
+import { getGiftsForUser, giftInfo } from '../services/gifts.js';
 
 export async function userRoutes(app: FastifyInstance) {
   // ── GET /users/me/achievements ─────────────────────────────────────────────
@@ -108,7 +108,8 @@ export async function userRoutes(app: FastifyInstance) {
                json_build_object(
                  'country_code', bm.country_code,
                  'content', bm.content,
-                 'created_at', bm.created_at
+                 'created_at', bm.created_at,
+                 'gift_id', bm.gift_id
                ) ORDER BY bm.created_at DESC
              ) FILTER (WHERE bm.id IS NOT NULL),
              '[]'
@@ -125,7 +126,14 @@ export async function userRoutes(app: FastifyInstance) {
         [userId],
       );
 
-      return reply.send({ boat: rows[0] ?? null });
+      const boat = rows[0] ?? null;
+      if (boat && Array.isArray(boat.messages)) {
+        // resolve o presente de cada mensagem (emoji + nome)
+        boat.messages = boat.messages.map((m: any) => ({
+          ...m, gift: giftInfo(m.gift_id ?? null),
+        }));
+      }
+      return reply.send({ boat });
     },
   );
 

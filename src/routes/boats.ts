@@ -2,14 +2,17 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { pool } from '../db/pool.js';
 import { processModeration, processRouting } from '../services/process.js';
 import { countryFromIp } from '../services/geo.js';
+import { userOwnsGift } from '../services/gifts.js';
 import { config } from '../config/index.js';
 
 interface CreateBoatBody {
   content: string;
+  giftId?: string;
 }
 
 interface HopBody {
   content?: string;
+  giftId?: string;
 }
 
 export async function boatRoutes(app: FastifyInstance) {
@@ -18,14 +21,18 @@ export async function boatRoutes(app: FastifyInstance) {
     '/boats',
     { schema: { body: { type: 'object', required: ['content'], properties: {
       content: { type: 'string', minLength: 1, maxLength: 500 },
+      giftId:  { type: 'string', maxLength: 40 },
     } } } },
     async (req: FastifyRequest<{ Body: CreateBoatBody }>, reply: FastifyReply) => {
       const userId = (req as any).user?.id;
       if (!userId) return reply.code(401).send({ error: 'unauthorized' });
 
-      const { content } = req.body;
+      const { content, giftId } = req.body;
       // Usa o país do JWT (detectado no login) ou faz fallback para IP atual
       const countryCode = (req as any).user?.country || await countryFromIp(req.ip);
+
+      // valida o presente (se houver) — só o que o usuário destravou
+      const gift = giftId && (await userOwnsGift(userId, giftId)) ? giftId : null;
 
       // Create boat + first message in one transaction
       const { rows } = await pool.query('BEGIN; SELECT 1');
@@ -37,9 +44,9 @@ export async function boatRoutes(app: FastifyInstance) {
         const boatId: string = boatResult.rows[0].id;
 
         const msgResult = await pool.query(
-          `INSERT INTO boat_messages (boat_id, user_id, content, country_code)
-           VALUES ($1, $2, $3, $4) RETURNING id`,
-          [boatId, userId, content, countryCode],
+          `INSERT INTO boat_messages (boat_id, user_id, content, country_code, gift_id)
+           VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+          [boatId, userId, content, countryCode, gift],
         );
         const messageId: string = msgResult.rows[0].id;
 
@@ -66,15 +73,19 @@ export async function boatRoutes(app: FastifyInstance) {
     '/boats/:id/hop',
     { schema: { body: { type: 'object', properties: {
       content: { type: 'string', minLength: 1, maxLength: 500 },
+      giftId:  { type: 'string', maxLength: 40 },
     } } } },
     async (req, reply) => {
       const userId = (req as any).user?.id;
       if (!userId) return reply.code(401).send({ error: 'unauthorized' });
 
       const boatId = req.params.id;
-      const { content } = req.body ?? {};
+      const { content, giftId } = req.body ?? {};
       const ip = req.ip;
       const countryCode = await countryFromIp(ip);
+
+      // presente só é anexado a uma mensagem — e só se o usuário o tiver
+      const gift = content && giftId && (await userOwnsGift(userId, giftId)) ? giftId : null;
 
       // Verify the boat exists and is active, and this user has a pending queue entry
       const { rows: queueRows } = await pool.query(
@@ -100,9 +111,9 @@ export async function boatRoutes(app: FastifyInstance) {
 
         if (content) {
           const msgResult = await pool.query(
-            `INSERT INTO boat_messages (boat_id, user_id, content, country_code)
-             VALUES ($1, $2, $3, $4) RETURNING id`,
-            [boatId, userId, content, countryCode],
+            `INSERT INTO boat_messages (boat_id, user_id, content, country_code, gift_id)
+             VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+            [boatId, userId, content, countryCode, gift],
           );
           messageId = msgResult.rows[0].id;
         }
