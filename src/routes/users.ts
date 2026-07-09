@@ -1,7 +1,20 @@
 import { FastifyInstance } from 'fastify';
 import { pool } from '../db/pool.js';
+import { getAchievementsForUser } from '../services/achievements.js';
 
 export async function userRoutes(app: FastifyInstance) {
+  // ── GET /users/me/achievements ─────────────────────────────────────────────
+  app.get(
+    '/users/me/achievements',
+    {},
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+      const data = await getAchievementsForUser(userId);
+      return reply.send(data);
+    },
+  );
+
   // ── POST /users/me/push-token ─────────────────────────────────────────────
   // O app registra aqui seu token do Expo Push (Android/iOS)
   app.post<{ Body: { token: string } }>(
