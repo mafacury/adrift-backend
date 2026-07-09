@@ -102,13 +102,14 @@ export async function userRoutes(app: FastifyInstance) {
            b.stage,
            b.unique_countries,
            -- message history
+           -- mais recente em cima, mais antiga embaixo (de onde o barco vem)
            COALESCE(
              json_agg(
                json_build_object(
                  'country_code', bm.country_code,
                  'content', bm.content,
                  'created_at', bm.created_at
-               ) ORDER BY bm.created_at ASC
+               ) ORDER BY bm.created_at DESC
              ) FILTER (WHERE bm.id IS NOT NULL),
              '[]'
            ) AS messages
