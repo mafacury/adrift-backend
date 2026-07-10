@@ -29,6 +29,10 @@ export const config = {
 
   boat: {
     maxIgnoresPerUser: int('MAX_IGNORES_PER_USER', 2),
+    // "aquecimento": segundos que o barco leva navegando até um receptor humano
+    // (silhueta no horizonte) antes de atracar. Bots recebem na hora.
+    warmupSecMin: int('WARMUP_SEC_MIN', 90),
+    warmupSecMax: int('WARMUP_SEC_MAX', 210),
     queueTimeoutMinutes: int('QUEUE_TIMEOUT_MINUTES', 720), // 12h — o receptor tem meio dia para responder
     boatIdleDays: int('BOAT_IDLE_DAYS', 30),
     minReportsToPause: int('MIN_REPORTS_TO_PAUSE', 3),

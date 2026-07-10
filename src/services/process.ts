@@ -1,7 +1,7 @@
 import { pool } from '../db/pool.js';
 import { moderate } from './moderation.js';
 import { config } from '../config/index.js';
-import { sendPushToUser, boatArrivedMessage } from './push.js';
+import { sendPushToUser, boatComingMessage } from './push.js';
 import {
   pickNextReceiver,
   enqueueForReceiver,
@@ -83,11 +83,20 @@ export async function processRouting(data: RoutingData): Promise<void> {
       return;
     }
 
-    await enqueueForReceiver(boatId, nextUserId);
-    console.log(`[routing] boat ${boatId} → user ${nextUserId}`);
+    // receptor humano → barco "navega" alguns minutos (silhueta no horizonte);
+    // bot recebe na hora (não olha a Jornada).
+    const { rows: ur } = await pool.query(
+      `SELECT oauth_provider FROM users WHERE id = $1`, [nextUserId],
+    );
+    const isBot = ur[0]?.oauth_provider === 'bot';
+    const { warmupSecMin, warmupSecMax } = config.boat;
+    const warmup = isBot ? 0 : warmupSecMin + Math.floor(Math.random() * (warmupSecMax - warmupSecMin + 1));
 
-    // avisa o receptor (bots não têm token — o envio é ignorado)
-    const { title, body } = boatArrivedMessage();
+    await enqueueForReceiver(boatId, nextUserId, warmup);
+    console.log(`[routing] boat ${boatId} → user ${nextUserId} (warmup ${warmup}s)`);
+
+    // avisa o receptor que um barco está a caminho (bots não têm token)
+    const { title, body } = boatComingMessage();
     void sendPushToUser(nextUserId, title, body);
   } catch (err) {
     console.error(`[routing] boat ${boatId} failed:`, err);

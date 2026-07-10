@@ -119,6 +119,7 @@ export async function userRoutes(app: FastifyInstance) {
          LEFT JOIN boat_messages bm ON bm.boat_id = rq.boat_id
          WHERE rq.user_id = $1
            AND rq.status = 'pending'
+           AND rq.arrives_at <= NOW()
            AND rq.expires_at > NOW()
          GROUP BY rq.id, b.id
          ORDER BY rq.queued_at ASC
@@ -133,7 +134,25 @@ export async function userRoutes(app: FastifyInstance) {
           ...m, gift: giftInfo(m.gift_id ?? null),
         }));
       }
-      return reply.send({ boat });
+
+      // barco navegando até a pessoa (ainda não atracou) → silhueta no horizonte
+      let incoming: { secondsUntil: number; totalSeconds: number } | null = null;
+      if (!boat) {
+        const { rows: inc } = await pool.query(
+          `SELECT
+             GREATEST(EXTRACT(EPOCH FROM (arrives_at - NOW()))::int, 0) AS secs_until,
+             GREATEST(EXTRACT(EPOCH FROM (arrives_at - queued_at))::int, 1) AS total_secs
+           FROM receiver_queue
+           WHERE user_id = $1 AND status = 'pending'
+             AND arrives_at > NOW() AND expires_at > NOW()
+           ORDER BY arrives_at ASC
+           LIMIT 1`,
+          [userId],
+        );
+        if (inc[0]) incoming = { secondsUntil: inc[0].secs_until, totalSeconds: inc[0].total_secs };
+      }
+
+      return reply.send({ boat, incoming });
     },
   );
 

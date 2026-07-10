@@ -45,13 +45,20 @@ export async function pickNextReceiver(
   return rows[0]?.id ?? null;
 }
 
-export async function enqueueForReceiver(boatId: string, userId: string): Promise<void> {
-  const expiresAt = new Date(Date.now() + config.boat.queueTimeoutMinutes * 60 * 1000);
+export async function enqueueForReceiver(
+  boatId: string,
+  userId: string,
+  warmupSeconds = 0,
+): Promise<void> {
+  // barco "navega" por warmupSeconds antes de atracar; o prazo de resposta
+  // (12h) só começa a contar quando ele chega (arrives_at).
+  const arrivesAt = new Date(Date.now() + warmupSeconds * 1000);
+  const expiresAt = new Date(arrivesAt.getTime() + config.boat.queueTimeoutMinutes * 60 * 1000);
   await pool.query(
-    `INSERT INTO receiver_queue (boat_id, user_id, expires_at)
-     VALUES ($1, $2, $3)
+    `INSERT INTO receiver_queue (boat_id, user_id, arrives_at, expires_at)
+     VALUES ($1, $2, $3, $4)
      ON CONFLICT DO NOTHING`,
-    [boatId, userId, expiresAt],
+    [boatId, userId, arrivesAt, expiresAt],
   );
 }
 

@@ -52,6 +52,14 @@ export function boatGiftMessage(): { title: string; body: string } {
   };
 }
 
+/** Aviso de que um barco está navegando até a pessoa (aparece no horizonte). */
+export function boatComingMessage(): { title: string; body: string } {
+  return {
+    title: '🌅 Um barco está a caminho!',
+    body: 'Avistado no horizonte — logo ele chega até você. Prepare suas palavras.',
+  };
+}
+
 /** Mensagem padrão de barco chegando, com o prazo real da fila. */
 export function boatArrivedMessage(): { title: string; body: string } {
   const mins = config.boat.queueTimeoutMinutes;
