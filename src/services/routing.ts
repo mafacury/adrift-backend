@@ -19,6 +19,7 @@ export async function pickNextReceiver(
       FROM users u
       WHERE
         u.ban_status = 'active'
+        AND u.receiving_paused = FALSE
         AND u.last_active_at >= NOW() - INTERVAL '7 days'
         -- never seen this boat
         AND u.id NOT IN (

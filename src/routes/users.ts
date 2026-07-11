@@ -16,6 +16,27 @@ export async function userRoutes(app: FastifyInstance) {
     },
   );
 
+  // ── Pausa de recebimento ───────────────────────────────────────────────────
+  app.get('/users/me/pause', {}, async (req, reply) => {
+    const userId = (req as any).user?.id;
+    if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+    const { rows } = await pool.query(`SELECT receiving_paused FROM users WHERE id = $1`, [userId]);
+    return reply.send({ paused: rows[0]?.receiving_paused ?? false });
+  });
+
+  app.post<{ Body: { paused: boolean } }>(
+    '/users/me/pause',
+    { schema: { body: { type: 'object', required: ['paused'], properties: {
+      paused: { type: 'boolean' },
+    } } } },
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+      await pool.query(`UPDATE users SET receiving_paused = $1 WHERE id = $2`, [req.body.paused, userId]);
+      return reply.send({ paused: req.body.paused });
+    },
+  );
+
   // ── GET /users/me/gifts ────────────────────────────────────────────────────
   app.get(
     '/users/me/gifts',
