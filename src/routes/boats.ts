@@ -300,7 +300,11 @@ export async function boatRoutes(app: FastifyInstance) {
         `SELECT
            (u.oauth_provider = 'bot') AS is_bot,
            rq.typing_at,
-           rq.queued_at + ((30 + ABS(HASHTEXT(rq.id::text)) % 211) || ' minutes')::interval AS responds_at
+           -- prazo efetivo do bot: o sorteado OU pouco antes da fila expirar
+           LEAST(
+             rq.queued_at + ((30 + ABS(HASHTEXT(rq.id::text)) % 211) || ' minutes')::interval,
+             rq.expires_at - INTERVAL '2 minutes'
+           ) AS responds_at
          FROM receiver_queue rq
          JOIN users u ON u.id = rq.user_id
          WHERE rq.boat_id = $1 AND rq.status = 'pending'

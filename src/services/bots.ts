@@ -172,8 +172,14 @@ export async function botRespondSweep(): Promise<void> {
        JOIN users u ON u.id = rq.user_id
        WHERE rq.status = 'pending'
          AND u.oauth_provider = 'bot'
-         -- prazo aleatório 30..240 min, estável por entrada
-         AND rq.queued_at < NOW() - ((30 + ABS(HASHTEXT(rq.id::text)) % 211) || ' minutes')::interval
+         AND (
+           -- prazo "humano" aleatório 30..240 min, estável por entrada...
+           rq.queued_at < NOW() - ((30 + ABS(HASHTEXT(rq.id::text)) % 211) || ' minutes')::interval
+           -- ...mas SEMPRE responde antes de a fila expirar (senão, com um
+           -- QUEUE_TIMEOUT curto, o barco fica num pingue-pongue eterno
+           -- de filas expiradas e nunca ganha um carimbo)
+           OR rq.expires_at < NOW() + INTERVAL '2 minutes'
+         )
        LIMIT 20`,
     );
     if (entries.length === 0) return;
