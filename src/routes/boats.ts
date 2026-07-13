@@ -232,6 +232,25 @@ export async function boatRoutes(app: FastifyInstance) {
     },
   );
 
+  // ── POST /boats/:id/typing ─────────────────────────────────────────────────
+  // Receptor humano avisa que está digitando a resposta — o criador do barco
+  // vê "escrevendo..." ao vivo no mapa. O app manda o sinal a cada ~10 s.
+  app.post<{ Params: { id: string } }>(
+    '/boats/:id/typing',
+    {},
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+
+      await pool.query(
+        `UPDATE receiver_queue SET typing_at = NOW()
+         WHERE boat_id = $1 AND user_id = $2 AND status = 'pending'`,
+        [req.params.id, userId],
+      );
+      return reply.send({ status: 'ok' });
+    },
+  );
+
   // ── GET /boats/:id/route ───────────────────────────────────────────────────
   app.get<{ Params: { id: string } }>(
     '/boats/:id/route',
@@ -275,13 +294,16 @@ export async function boatRoutes(app: FastifyInstance) {
       );
 
       // Estado "ao vivo": há alguém com o barco agora? Está escrevendo?
-      // Para bots o prazo de resposta é determinístico (mesma fórmula do sweep
-      // em services/bots.ts), então dá para anunciar "escrevendo..." nos minutos
-      // finais — sem revelar país nem horário (barcos chegam quando chegam).
-      const TYPING_WINDOW_MIN = 7;
+      // Humanos: o app do receptor manda POST /boats/:id/typing enquanto a
+      // pessoa digita (sinal real). Bots: o prazo de resposta é determinístico
+      // (mesma fórmula do sweep em services/bots.ts), então dá para anunciar
+      // "escrevendo..." nos minutos finais. Nunca revela país nem horário.
+      const TYPING_WINDOW_MIN = 7;      // bots: minutos antes da resposta
+      const TYPING_FRESH_SEC  = 45;     // humanos: validade do último sinal
       const { rows: liveRows } = await pool.query(
         `SELECT
            (u.oauth_provider = 'bot') AS is_bot,
+           rq.typing_at,
            rq.queued_at + ((30 + ABS(HASHTEXT(rq.id::text)) % 211) || ' minutes')::interval AS responds_at
          FROM receiver_queue rq
          JOIN users u ON u.id = rq.user_id
@@ -293,9 +315,17 @@ export async function boatRoutes(app: FastifyInstance) {
 
       let liveState: 'idle' | 'sailing' | 'typing' =
         boat.status === 'active' ? 'sailing' : 'idle';
-      if (liveRows.length && liveRows[0].is_bot) {
-        const msLeft = new Date(liveRows[0].responds_at).getTime() - Date.now();
-        if (msLeft <= TYPING_WINDOW_MIN * 60_000) liveState = 'typing';
+      if (liveRows.length) {
+        const live = liveRows[0];
+        if (live.is_bot) {
+          const msLeft = new Date(live.responds_at).getTime() - Date.now();
+          if (msLeft <= TYPING_WINDOW_MIN * 60_000) liveState = 'typing';
+        } else if (
+          live.typing_at &&
+          Date.now() - new Date(live.typing_at).getTime() <= TYPING_FRESH_SEC * 1000
+        ) {
+          liveState = 'typing';
+        }
       }
 
       return reply.send({ boat, hops, live: { state: liveState } });
