@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { pool } from '../db/pool.js';
 import { getAchievementsForUser } from '../services/achievements.js';
 import { getGiftsForUser, giftInfo } from '../services/gifts.js';
+import { liveStateFrom, departsInSeconds } from '../services/live.js';
 
 export async function userRoutes(app: FastifyInstance) {
   // ── GET /users/me/achievements ─────────────────────────────────────────────
@@ -89,19 +90,46 @@ export async function userRoutes(app: FastifyInstance) {
              SELECT COUNT(DISTINCT user_id)
              FROM boat_country_interactions
              WHERE boat_id = b.id
-           ) AS total_unique_interactions
+           ) AS total_unique_interactions,
+           lq.is_bot,
+           lq.typing_at,
+           lq.responds_at
          FROM boats b
          JOIN boat_messages bm
            ON bm.boat_id = b.id
            AND bm.created_at = (
              SELECT MIN(created_at) FROM boat_messages WHERE boat_id = b.id
            )
+         LEFT JOIN LATERAL (
+           SELECT
+             (u.oauth_provider = 'bot') AS is_bot,
+             rq.typing_at,
+             rq.queued_at + ((30 + ABS(HASHTEXT(rq.id::text)) % 211) || ' minutes')::interval AS responds_at
+           FROM receiver_queue rq
+           JOIN users u ON u.id = rq.user_id
+           WHERE rq.boat_id = b.id AND rq.status = 'pending'
+           ORDER BY rq.queued_at DESC
+           LIMIT 1
+         ) lq ON TRUE
          WHERE b.creator_user_id = $1
          ORDER BY b.created_at DESC`,
         [userId],
       );
 
-      return reply.send({ boats: rows });
+      // Selos ao vivo da lista: estado + partida estimada (só bots têm hora).
+      // Detalhes internos (is_bot, typing_at, responds_at) não saem da API.
+      const boats = rows.map((r) => {
+        const lq = r.is_bot === null ? undefined
+          : { is_bot: r.is_bot, typing_at: r.typing_at, responds_at: r.responds_at };
+        const { is_bot, typing_at, responds_at, ...boat } = r;
+        return {
+          ...boat,
+          live_state: liveStateFrom(lq, r.status),
+          departs_in: departsInSeconds(lq),
+        };
+      });
+
+      return reply.send({ boats });
     },
   );
 

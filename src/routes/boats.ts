@@ -3,6 +3,7 @@ import { pool } from '../db/pool.js';
 import { processModeration, processRouting } from '../services/process.js';
 import { countryFromIp } from '../services/geo.js';
 import { userOwnsGift } from '../services/gifts.js';
+import { liveStateFrom } from '../services/live.js';
 import { sendPushToUser, boatGiftMessage } from '../services/push.js';
 import { config } from '../config/index.js';
 
@@ -293,13 +294,8 @@ export async function boatRoutes(app: FastifyInstance) {
         [boatId],
       );
 
-      // Estado "ao vivo": há alguém com o barco agora? Está escrevendo?
-      // Humanos: o app do receptor manda POST /boats/:id/typing enquanto a
-      // pessoa digita (sinal real). Bots: o prazo de resposta é determinístico
-      // (mesma fórmula do sweep em services/bots.ts), então dá para anunciar
-      // "escrevendo..." nos minutos finais. Nunca revela país nem horário.
-      const TYPING_WINDOW_MIN = 7;      // bots: minutos antes da resposta
-      const TYPING_FRESH_SEC  = 45;     // humanos: validade do último sinal
+      // Estado "ao vivo" (ver services/live.ts): humanos = sinal real de
+      // digitação; bots = prazo determinístico. Não revela país nem horário.
       const { rows: liveRows } = await pool.query(
         `SELECT
            (u.oauth_provider = 'bot') AS is_bot,
@@ -313,22 +309,10 @@ export async function boatRoutes(app: FastifyInstance) {
         [boatId],
       );
 
-      let liveState: 'idle' | 'sailing' | 'typing' =
-        boat.status === 'active' ? 'sailing' : 'idle';
-      if (liveRows.length) {
-        const live = liveRows[0];
-        if (live.is_bot) {
-          const msLeft = new Date(live.responds_at).getTime() - Date.now();
-          if (msLeft <= TYPING_WINDOW_MIN * 60_000) liveState = 'typing';
-        } else if (
-          live.typing_at &&
-          Date.now() - new Date(live.typing_at).getTime() <= TYPING_FRESH_SEC * 1000
-        ) {
-          liveState = 'typing';
-        }
-      }
-
-      return reply.send({ boat, hops, live: { state: liveState } });
+      return reply.send({
+        boat, hops,
+        live: { state: liveStateFrom(liveRows[0], boat.status) },
+      });
     },
   );
 
