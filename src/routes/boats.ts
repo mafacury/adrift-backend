@@ -274,7 +274,31 @@ export async function boatRoutes(app: FastifyInstance) {
         [boatId],
       );
 
-      return reply.send({ boat, hops });
+      // Estado "ao vivo": há alguém com o barco agora? Está escrevendo?
+      // Para bots o prazo de resposta é determinístico (mesma fórmula do sweep
+      // em services/bots.ts), então dá para anunciar "escrevendo..." nos minutos
+      // finais — sem revelar país nem horário (barcos chegam quando chegam).
+      const TYPING_WINDOW_MIN = 7;
+      const { rows: liveRows } = await pool.query(
+        `SELECT
+           (u.oauth_provider = 'bot') AS is_bot,
+           rq.queued_at + ((30 + ABS(HASHTEXT(rq.id::text)) % 211) || ' minutes')::interval AS responds_at
+         FROM receiver_queue rq
+         JOIN users u ON u.id = rq.user_id
+         WHERE rq.boat_id = $1 AND rq.status = 'pending'
+         ORDER BY rq.queued_at DESC
+         LIMIT 1`,
+        [boatId],
+      );
+
+      let liveState: 'idle' | 'sailing' | 'typing' =
+        boat.status === 'active' ? 'sailing' : 'idle';
+      if (liveRows.length && liveRows[0].is_bot) {
+        const msLeft = new Date(liveRows[0].responds_at).getTime() - Date.now();
+        if (msLeft <= TYPING_WINDOW_MIN * 60_000) liveState = 'typing';
+      }
+
+      return reply.send({ boat, hops, live: { state: liveState } });
     },
   );
 
