@@ -258,4 +258,99 @@ export async function adminRoutes(app: FastifyInstance) {
       return reply.send({ setting: rows[0] });
     },
   );
+
+  // ── GET /admin/countries ───────────────────────────────────────────────────
+  // Lista dos 195 países participantes (barcos só "carimbam" países ativos)
+  app.get('/admin/countries', async (_req, reply) => {
+    const { rows } = await pool.query(
+      `SELECT code, name_pt, name_en, active FROM countries ORDER BY name_pt`,
+    );
+    return reply.send({ countries: rows });
+  });
+
+  // ── PATCH /admin/countries/:code ───────────────────────────────────────────
+  app.patch<{ Params: { code: string }; Body: { active: boolean } }>(
+    '/admin/countries/:code',
+    { schema: { body: { type: 'object', required: ['active'], properties: {
+      active: { type: 'boolean' },
+    } } } },
+    async (req, reply) => {
+      const { rowCount } = await pool.query(
+        `UPDATE countries SET active = $1 WHERE code = $2`,
+        [req.body.active, req.params.code.toUpperCase()],
+      );
+      if (!rowCount) return reply.code(404).send({ error: 'país não encontrado' });
+      return reply.send({ status: 'ok' });
+    },
+  );
+
+  // ── GET /admin/boats ───────────────────────────────────────────────────────
+  // Barcos dos usuários, com criador e contagens (paginado, busca por e-mail)
+  app.get<{ Querystring: { page?: string; limit?: string; search?: string } }>(
+    '/admin/boats',
+    async (req, reply) => {
+      const page   = Math.max(1, parseInt(req.query.page  ?? '1', 10));
+      const limit  = Math.min(50, parseInt(req.query.limit ?? '20', 10));
+      const offset = (page - 1) * limit;
+      const search = req.query.search ?? null;
+
+      const { rows } = await pool.query(
+        `SELECT
+           b.id, b.status, b.stage, b.unique_countries, b.created_at, b.last_hop_at,
+           u.email AS creator_email,
+           (SELECT COUNT(*)::int FROM boat_hops     WHERE boat_id = b.id) AS hop_count,
+           (SELECT COUNT(*)::int FROM boat_messages WHERE boat_id = b.id) AS message_count,
+           (SELECT LEFT(content, 80) FROM boat_messages
+            WHERE boat_id = b.id ORDER BY created_at ASC LIMIT 1)         AS initial_message
+         FROM boats b
+         JOIN users u ON u.id = b.creator_user_id
+         WHERE ($1::text IS NULL OR u.email ILIKE '%' || $1 || '%')
+         ORDER BY b.created_at DESC
+         LIMIT $2 OFFSET $3`,
+        [search, limit, offset],
+      );
+
+      const { rows: cnt } = await pool.query(
+        `SELECT COUNT(*)::int AS total
+         FROM boats b JOIN users u ON u.id = b.creator_user_id
+         WHERE ($1::text IS NULL OR u.email ILIKE '%' || $1 || '%')`,
+        [search],
+      );
+
+      return reply.send({ boats: rows, total: cnt[0].total, page, limit });
+    },
+  );
+
+  // ── GET /admin/boats/:id ───────────────────────────────────────────────────
+  // Caminho completo (lista de pulos) + mensagens do barco
+  app.get<{ Params: { id: string } }>(
+    '/admin/boats/:id',
+    async (req, reply) => {
+      const { rows: boatRows } = await pool.query(
+        `SELECT b.id, b.status, b.stage, b.unique_countries, b.created_at,
+                b.last_hop_at, u.email AS creator_email
+         FROM boats b JOIN users u ON u.id = b.creator_user_id
+         WHERE b.id = $1`,
+        [req.params.id],
+      );
+      if (!boatRows.length) return reply.code(404).send({ error: 'barco não encontrado' });
+
+      const { rows: hops } = await pool.query(
+        `SELECT
+           h.id, h.country_code, h.hopped_at,
+           c.name_pt   AS country_name,
+           bm.content  AS message,
+           mu.email    AS author_email
+         FROM boat_hops h
+         LEFT JOIN countries     c  ON c.code = h.country_code
+         LEFT JOIN boat_messages bm ON bm.id  = h.message_id
+         LEFT JOIN users         mu ON mu.id  = h.to_user_id
+         WHERE h.boat_id = $1
+         ORDER BY h.hopped_at ASC`,
+        [req.params.id],
+      );
+
+      return reply.send({ boat: boatRows[0], hops });
+    },
+  );
 }

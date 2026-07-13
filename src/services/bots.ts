@@ -1,5 +1,6 @@
 import { pool } from '../db/pool.js';
 import { processRouting } from './process.js';
+import { COUNTRY_LANG } from './country-data.js';
 
 /**
  * Usuários virtuais (bots) espalhados pelo mundo.
@@ -30,69 +31,113 @@ export const BOTS: Bot[] = [
   { email: 'lucia.cancun@adrift.bot',  oauthId: 'bot-lucia',  country: 'MX' },
 ];
 
-const BOT_COUNTRY = new Map(BOTS.map(b => [b.email, b.country]));
-
-// Respostas por país — curtas, calorosas, no idioma local
-const REPLIES: Record<string, string[]> = {
-  BR: [
-    'Recebido aqui no Brasil com alegria! Que esse barco leve um pouco do nosso sol pra frente. Boa viagem!',
-    'Do litoral brasileiro: adorei encontrar esse barquinho. Vai em frente, o mundo é grande e generoso!',
-    'Que mensagem boa de receber. O mar daqui manda um abraço quente. Segue viagem, marujo!',
+// Mensagens por IDIOMA — o país de cada resposta é sorteado entre os países
+// ATIVOS (tabela countries) ainda não visitados pelo barco; a mensagem sai
+// do pool do idioma daquele país (COUNTRY_LANG). {COUNTRY} = nome em inglês,
+// {PAIS} = nome em português.
+const REPLIES_BY_LANG: Record<string, string[]> = {
+  pt: [
+    'Recebido aqui em {PAIS} com alegria! Que esse barco leve um pouco do nosso sol pra frente. Boa viagem!',
+    'De {PAIS}: adorei encontrar esse barquinho. Vai em frente, o mundo é grande e generoso!',
+    'Que mensagem boa de receber. O mar de {PAIS} manda um abraço quente. Segue viagem, marujo!',
   ],
-  US: [
-    'Picked this up in the United States — what a journey this little boat is on! Sending it forward with good vibes.',
-    'Hello from the US! Messages like this remind me the world is smaller and kinder than the news says.',
-    'Caught your boat on this side of the ocean. Safe travels, little sailor — the world awaits!',
+  en: [
+    'Picked this up in {COUNTRY} — what a journey this little boat is on! Sending it forward with good vibes.',
+    'Hello from {COUNTRY}! Messages like this remind me the world is smaller and kinder than the news says.',
+    'Caught your boat here in {COUNTRY}. Safe travels, little sailor — the world awaits!',
   ],
-  JP: [
-    '日本からこんにちは！この小さな船の旅に感動しました。次の港まで無事に。 (Olá do Japão! Emocionado com a viagem deste barquinho.)',
-    '東京湾で受け取りました。世界は広いけれど、心はつながっています。(Recebido na baía de Tóquio. O mundo é vasto, mas os corações se conectam.)',
-    'こんにちは！素敵なメッセージをありがとう。良い航海を！(Olá! Obrigado pela linda mensagem. Boa navegação!)',
+  es: [
+    '¡Hola desde {COUNTRY}! Este barquito llegó con buen viento. ¡Que siga su aventura!',
+    'Recibido en {COUNTRY} con mucho gusto. Qué bonito saber que hay desconocidos deseándose cosas buenas. ¡Adelante!',
+    'Desde {COUNTRY} con cariño: que este barco siga encontrando manos amables. ¡Buen viaje!',
   ],
-  ES: [
-    '¡Hola desde España! Este barquito llegó con el sol del Mediterráneo. ¡Buen viento y buena mar!',
-    'Recibido en la costa española. Qué bonito saber que hay desconocidos deseándose cosas buenas. ¡Adelante!',
-    'Desde Barcelona con cariño: que este barco siga encontrando manos amables. ¡Bon voyage!',
+  fr: [
+    'Bonjour de {COUNTRY} ! Ce petit bateau a accosté ici avec élégance. Je le renvoie avec tout mon cœur.',
+    'Reçu ici en {COUNTRY}. Quelle belle idée, des mots qui voyagent... Bon vent, petit bateau !',
   ],
-  NG: [
-    'Greetings from Nigeria! The ocean connects all of us — sending this boat forward with hope and joy.',
-    'Received in Lagos with a big smile. Keep sailing, little one, Africa wishes you well!',
-    'From the Gulf of Guinea: this message made my day. Onward, brave little boat!',
+  de: [
+    'Grüße aus {COUNTRY}! Dein Boot hat hier kurz angelegt und segelt jetzt weiter. Gute Reise!',
+    'Hallo aus {COUNTRY}! Deine Nachricht hat mich gefreut. Weiter geht die Reise, kleines Boot!',
   ],
-  FR: [
-    'Bonjour de France ! Ce petit bateau a accosté ici avec élégance. Je le renvoie avec tout mon cœur.',
-    'Reçu sur la côte française. Quelle belle idée, des mots qui voyagent... Bon vent, petit bateau !',
-    'Salut du port de Marseille ! Que ton voyage continue longtemps. Bonne mer !',
+  it: [
+    'Ciao da {COUNTRY}! Questo messaggio ha attraversato il mare per arrivare qui. Buon vento, piccola barca!',
+    'Ricevuto in {COUNTRY} con un sorriso. Che il viaggio continui ancora a lungo!',
   ],
-  DE: [
-    'Grüße aus Deutschland! Dein Boot hat hier kurz angelegt und segelt jetzt weiter. Gute Reise!',
-    'In Hamburg empfangen — der Stadt der Häfen. Möge dieses Boot noch viele Länder sehen!',
-    'Hallo! Deine Nachricht hat mich gefreut. Weiter geht die Reise, kleines Boot!',
+  nl: [
+    'Groeten uit {COUNTRY}! Je bootje heeft hier even aangelegd en vaart nu verder. Goede reis!',
+    'Hallo vanuit {COUNTRY}! Wat een verrassing, dit bootje. Vaar maar door, kleine zeiler!',
   ],
-  IN: [
-    'Namaste from India! May this boat carry peace to every shore it touches. 🙏',
-    'Received in Mumbai with warm wishes. The Arabian Sea sends you onward, little traveler!',
-    'Hello from India! So happy this message found me. Safe sailing to the next friend!',
+  sv: [
+    'Hälsningar från {COUNTRY}! Din lilla båt lade till här en stund — nu seglar den vidare. Trevlig resa!',
+    'Hej från {COUNTRY}! Vilken resa den här lilla båten gör. Lycka till på haven!',
   ],
-  AU: [
-    'G\'day from Australia! Your boat crossed half the planet to get here — respect! Sending it onward.',
-    'Caught this drifting near Sydney. What a champion little boat. Onward you go, mate!',
-    'Hello from Down Under! The Pacific says hi. Fair winds for the rest of your journey!',
+  pl: [
+    'Pozdrowienia z {COUNTRY}! Twoja łódka zawinęła tu na chwilę — płynie dalej. Szczęśliwej podróży!',
+    'Cześć z {COUNTRY}! Co za niespodzianka. Płyń dalej, mała łódko!',
   ],
-  CA: [
-    'Hello from Canada! Your boat docked here between two oceans. Sending it forward with maple-sweet wishes.',
-    'Received in Toronto, eh! What a lovely surprise. Keep going, little boat, the world is watching!',
-    'Greetings from the Great White North — may your journey stay warm even in cold waters!',
+  el: [
+    'Γεια σου από την {COUNTRY}! Το καραβάκι σου άραξε εδώ για λίγο — καλό ταξίδι!',
+    'Ελήφθη στην {COUNTRY} με χαμόγελο. Καλή συνέχεια, μικρό καράβι!',
   ],
-  KR: [
-    '한국에서 인사드려요! 이 작은 배의 여행이 정말 감동적이에요. (Saudações da Coreia! A viagem deste barquinho é emocionante.)',
-    '부산항에서 받았습니다. 다음 항구까지 안전한 항해를! (Recebido no porto de Busan. Boa viagem até o próximo porto!)',
-    '안녕하세요! 좋은 메시지 고마워요. 계속 항해하세요! (Olá! Obrigado pela boa mensagem. Continue navegando!)',
+  tr: [
+    '{COUNTRY}\'den selamlar! Küçük teknen burada kısa bir mola verdi — yoluna devam ediyor. İyi yolculuklar!',
+    'Merhaba! Mesajın buraya kadar geldi, ne güzel. Rüzgârın bol olsun, küçük tekne!',
   ],
-  MX: [
-    '¡Hola desde México! El Caribe recibió tu barquito con olas suaves. ¡Que siga su aventura!',
-    'Recibido en Cancún con mucho gusto. ¡Este barco ya es parte de nuestra historia! ¡Buen viaje!',
-    '¡Saludos mexicanos! Que este barquito encuentre siempre puertos amigos. ¡Ándale, adelante!',
+  ru: [
+    'Привет из {COUNTRY}! Твоя лодочка ненадолго причалила здесь — и плывёт дальше. Счастливого пути!',
+    'Получено в {COUNTRY} с улыбкой. Пусть море будет добрым к тебе, кораблик!',
+  ],
+  uk: [
+    'Привіт з {COUNTRY}! Твій човник причалив тут ненадовго — і пливе далі. Щасливої дороги!',
+    'Отримано в {COUNTRY} з посмішкою. Хай море буде лагідним, кораблику!',
+  ],
+  ar: [
+    'تحية من {COUNTRY}! رست قاربك الصغير هنا قليلاً — ويكمل رحلته الآن. رحلة سعيدة!',
+    'وصلت رسالتك إلى {COUNTRY}. البحر يجمعنا جميعاً. أكمل الإبحار أيها القارب الصغير!',
+  ],
+  fa: [
+    'درود از {COUNTRY}! قایق کوچکت اینجا لنگر انداخت و حالا ادامه می‌دهد. سفر خوش!',
+    'پیامت به {COUNTRY} رسید. دریا همه‌ی ما را به هم می‌رساند. بادبان‌هایت پر باد!',
+  ],
+  he: [
+    'שלום מ{COUNTRY}! הסירה הקטנה שלך עגנה כאן לרגע — וממשיכה במסע. דרך צלחה!',
+    'ההודעה שלך הגיעה עד {COUNTRY}. הים מחבר בין כולנו. המשיכי לשוט, סירה קטנה!',
+  ],
+  hi: [
+    '{COUNTRY} से नमस्ते! आपकी छोटी नाव यहाँ कुछ पल रुकी — अब आगे बढ़ रही है। शुभ यात्रा!',
+    'आपका संदेश {COUNTRY} तक पहुँचा। समुद्र हम सबको जोड़ता है। बढ़ते रहो, छोटी नाव!',
+  ],
+  th: [
+    'สวัสดีจาก {COUNTRY}! เรือน้อยของคุณแวะพักที่นี่ครู่หนึ่ง — แล้วเดินทางต่อ ขอให้เดินทางปลอดภัย!',
+    'ข้อความของคุณมาถึง {COUNTRY} แล้ว ทะเลเชื่อมเราทุกคนไว้ด้วยกัน แล่นต่อไปนะเรือน้อย!',
+  ],
+  vi: [
+    'Xin chào từ {COUNTRY}! Chiếc thuyền nhỏ của bạn đã ghé đây một lát — và tiếp tục hành trình. Thuận buồm xuôi gió!',
+    'Tin nhắn của bạn đã đến {COUNTRY}. Biển cả kết nối tất cả chúng ta. Tiếp tục nhé, thuyền nhỏ!',
+  ],
+  id: [
+    'Salam dari {COUNTRY}! Perahu kecilmu singgah di sini sebentar — dan berlayar lagi. Selamat jalan!',
+    'Pesanmu sampai di {COUNTRY}. Lautan menghubungkan kita semua. Terus berlayar, perahu kecil!',
+  ],
+  tl: [
+    'Kumusta mula sa {COUNTRY}! Sandaling dumaong ang iyong munting bangka dito — at naglalayag na muli. Maligayang paglalakbay!',
+    'Nakarating ang mensahe mo sa {COUNTRY}. Pinag-uugnay tayo ng karagatan. Sige lang, munting bangka!',
+  ],
+  ja: [
+    'こんにちは！この小さな船の旅に感動しました。次の港まで無事に。(Olá! Emocionado com a viagem deste barquinho.)',
+    '受け取りました。世界は広いけれど、心はつながっています。(Recebido. O mundo é vasto, mas os corações se conectam.)',
+  ],
+  ko: [
+    '안녕하세요! 이 작은 배의 여행이 정말 감동적이에요. 계속 항해하세요! (Olá! A viagem deste barquinho é emocionante.)',
+    '잘 받았습니다. 다음 항구까지 안전한 항해를! (Recebido. Boa viagem até o próximo porto!)',
+  ],
+  zh: [
+    '你好！这只小船的旅程令人感动。愿它一路顺风！(Olá! A viagem deste barquinho é emocionante.)',
+    '收到了你的消息。大海把我们连在一起。继续航行吧，小船！(Recebido. O mar nos conecta.)',
+  ],
+  sw: [
+    'Salamu kutoka {COUNTRY}! Mashua yako ndogo ilitia nanga hapa kidogo — sasa inaendelea. Safari njema!',
+    'Ujumbe wako umefika {COUNTRY}. Bahari inatuunganisha sote. Endelea kusafiri, mashua ndogo!',
   ],
 };
 
@@ -135,11 +180,29 @@ export async function botRespondSweep(): Promise<void> {
     console.log(`[bots] respondendo ${entries.length} barco(s)`);
 
     for (const entry of entries) {
-      const country = BOT_COUNTRY.get(entry.email) ?? 'XX';
-      const pool_ = REPLIES[country] ?? [];
+      // País do carimbo: aleatório entre os ATIVOS que o barco ainda não
+      // visitou — assim cada barco desenha um caminho distinto pelo mundo.
+      const { rows: cRows } = await pool.query(
+        `SELECT code, name_pt, name_en FROM countries
+         WHERE active
+           AND code NOT IN (SELECT country_code FROM boat_countries WHERE boat_id = $1)
+         ORDER BY RANDOM() LIMIT 1`,
+        [entry.boat_id],
+      );
+      // barco já visitou todos os ativos? repete um qualquer
+      const c = cRows[0] ?? (await pool.query(
+        `SELECT code, name_pt, name_en FROM countries WHERE active ORDER BY RANDOM() LIMIT 1`,
+      )).rows[0];
+      if (!c) { console.warn('[bots] nenhum país ativo — pulando'); continue; }
+
+      const country = c.code;
+      const lang = COUNTRY_LANG[country] ?? 'en';
+      const pool_ = REPLIES_BY_LANG[lang] ?? REPLIES_BY_LANG.en;
       // 85% das vezes o bot escreve; 15% só manda seguir
-      const content = pool_.length && Math.random() < 0.85
+      const content = Math.random() < 0.85
         ? pool_[Math.floor(Math.random() * pool_.length)]
+            .replaceAll('{COUNTRY}', c.name_en)
+            .replaceAll('{PAIS}', c.name_pt)
         : null;
 
       await pool.query('BEGIN');
