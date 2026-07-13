@@ -95,13 +95,14 @@ export async function adminRoutes(app: FastifyInstance) {
   );
 
   // ── GET /admin/boats ───────────────────────────────────────────────────────
-  app.get<{ Querystring: { page?: string; limit?: string; status?: string } }>(
+  app.get<{ Querystring: { page?: string; limit?: string; status?: string; search?: string } }>(
     '/admin/boats',
     async (req, reply) => {
       const page   = Math.max(1, parseInt(req.query.page  ?? '1', 10));
       const limit  = Math.min(50, parseInt(req.query.limit ?? '20', 10));
       const offset = (page - 1) * limit;
       const status = req.query.status ?? null;
+      const search = req.query.search ?? null;   // busca por e-mail do criador
 
       const { rows } = await pool.query(
         `SELECT
@@ -116,15 +117,18 @@ export async function adminRoutes(app: FastifyInstance) {
          FROM boats b
          JOIN users u ON u.id = b.creator_user_id
          WHERE ($1::text IS NULL OR b.status = $1)
+           AND ($4::text IS NULL OR u.email ILIKE '%' || $4 || '%')
          ORDER BY b.created_at DESC
          LIMIT $2 OFFSET $3`,
-        [status, limit, offset],
+        [status, limit, offset, search],
       );
 
       const { rows: cnt } = await pool.query(
-        `SELECT COUNT(*)::int AS total FROM boats
-         WHERE ($1::text IS NULL OR status = $1)`,
-        [status],
+        `SELECT COUNT(*)::int AS total
+         FROM boats b JOIN users u ON u.id = b.creator_user_id
+         WHERE ($1::text IS NULL OR b.status = $1)
+           AND ($2::text IS NULL OR u.email ILIKE '%' || $2 || '%')`,
+        [status, search],
       );
 
       return reply.send({ boats: rows, total: cnt[0].total, page, limit });
@@ -281,43 +285,6 @@ export async function adminRoutes(app: FastifyInstance) {
       );
       if (!rowCount) return reply.code(404).send({ error: 'país não encontrado' });
       return reply.send({ status: 'ok' });
-    },
-  );
-
-  // ── GET /admin/boats ───────────────────────────────────────────────────────
-  // Barcos dos usuários, com criador e contagens (paginado, busca por e-mail)
-  app.get<{ Querystring: { page?: string; limit?: string; search?: string } }>(
-    '/admin/boats',
-    async (req, reply) => {
-      const page   = Math.max(1, parseInt(req.query.page  ?? '1', 10));
-      const limit  = Math.min(50, parseInt(req.query.limit ?? '20', 10));
-      const offset = (page - 1) * limit;
-      const search = req.query.search ?? null;
-
-      const { rows } = await pool.query(
-        `SELECT
-           b.id, b.status, b.stage, b.unique_countries, b.created_at, b.last_hop_at,
-           u.email AS creator_email,
-           (SELECT COUNT(*)::int FROM boat_hops     WHERE boat_id = b.id) AS hop_count,
-           (SELECT COUNT(*)::int FROM boat_messages WHERE boat_id = b.id) AS message_count,
-           (SELECT LEFT(content, 80) FROM boat_messages
-            WHERE boat_id = b.id ORDER BY created_at ASC LIMIT 1)         AS initial_message
-         FROM boats b
-         JOIN users u ON u.id = b.creator_user_id
-         WHERE ($1::text IS NULL OR u.email ILIKE '%' || $1 || '%')
-         ORDER BY b.created_at DESC
-         LIMIT $2 OFFSET $3`,
-        [search, limit, offset],
-      );
-
-      const { rows: cnt } = await pool.query(
-        `SELECT COUNT(*)::int AS total
-         FROM boats b JOIN users u ON u.id = b.creator_user_id
-         WHERE ($1::text IS NULL OR u.email ILIKE '%' || $1 || '%')`,
-        [search],
-      );
-
-      return reply.send({ boats: rows, total: cnt[0].total, page, limit });
     },
   );
 
