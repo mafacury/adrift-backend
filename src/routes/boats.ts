@@ -333,6 +333,78 @@ export async function boatRoutes(app: FastifyInstance) {
     },
   );
 
+  // ── GET /rankings ──────────────────────────────────────────────────────────
+  // Ranking de BARCOS (anônimo): pontos = interações (mensagens de terceiros)
+  // + presentes recebidos × 10. scope=world | country (país do criador).
+  // Barcos de bots/demo ficam de fora. Inclui a posição do melhor barco do
+  // usuário logado, mesmo fora do Top 50.
+  app.get<{ Querystring: { scope?: string } }>(
+    '/rankings',
+    {},
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+
+      let countryFilter: string | null = null;
+      if (req.query.scope === 'country') {
+        const { rows } = await pool.query(
+          `SELECT country_code FROM users WHERE id = $1`, [userId],
+        );
+        countryFilter = rows[0]?.country_code ?? null;
+      }
+
+      const rankedSql = `
+        WITH scored AS (
+          SELECT
+            b.id, b.stage, b.creator_user_id,
+            u.country_code,
+            (SELECT LEFT(content, 60) FROM boat_messages
+             WHERE boat_id = b.id ORDER BY created_at ASC LIMIT 1) AS initial_message,
+            (SELECT COUNT(*)::int FROM boat_messages m
+             WHERE m.boat_id = b.id AND m.user_id <> b.creator_user_id) AS interactions,
+            (SELECT COUNT(*)::int FROM boat_messages m
+             WHERE m.boat_id = b.id AND m.user_id <> b.creator_user_id
+               AND m.gift_id IS NOT NULL) AS gifts
+          FROM boats b
+          JOIN users u ON u.id = b.creator_user_id
+          WHERE u.oauth_provider IS DISTINCT FROM 'bot'
+            AND ($1::text IS NULL OR u.country_code = $1)
+        ),
+        ranked AS (
+          SELECT *,
+            interactions + gifts * 10 AS score,
+            RANK() OVER (ORDER BY interactions + gifts * 10 DESC) AS pos
+          FROM scored
+        )`;
+
+      const { rows: top } = await pool.query(
+        `${rankedSql}
+         SELECT pos, id, stage, country_code, initial_message,
+                interactions, gifts, score,
+                (creator_user_id = $2) AS is_mine
+         FROM ranked
+         ORDER BY pos, id
+         LIMIT 50`,
+        [countryFilter, userId],
+      );
+
+      const { rows: mine } = await pool.query(
+        `${rankedSql}
+         SELECT pos, id FROM ranked
+         WHERE creator_user_id = $2
+         ORDER BY pos LIMIT 1`,
+        [countryFilter, userId],
+      );
+
+      return reply.send({
+        scope: countryFilter ? 'country' : 'world',
+        country: countryFilter,
+        rows: top,
+        me: mine[0] ?? null,
+      });
+    },
+  );
+
   // ── POST /boats/:id/report ─────────────────────────────────────────────────
   app.post<{ Params: { id: string }; Body: { messageId: string } }>(
     '/boats/:id/report',
