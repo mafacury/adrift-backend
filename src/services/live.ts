@@ -17,6 +17,7 @@ export interface LiveQueueRow {
   is_bot: boolean;
   typing_at: string | Date | null;
   responds_at: string | Date;
+  arrives_at?: string | Date | null;
 }
 
 export function liveStateFrom(
@@ -25,6 +26,10 @@ export function liveStateFrom(
 ): LiveState {
   if (boatStatus !== 'active') return 'idle';
   if (!row) return 'sailing';
+  // ainda em viagem (distância real): está em alto mar, não "com alguém"
+  if (row.arrives_at && new Date(row.arrives_at).getTime() > Date.now()) {
+    return 'sailing';
+  }
   if (row.is_bot) {
     const msLeft = new Date(row.responds_at).getTime() - Date.now();
     if (msLeft <= TYPING_WINDOW_MIN * 60_000) return 'typing';

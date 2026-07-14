@@ -105,9 +105,11 @@ export async function userRoutes(app: FastifyInstance) {
            SELECT
              (u.oauth_provider = 'bot') AS is_bot,
              rq.typing_at,
-             -- prazo efetivo do bot: o sorteado OU pouco antes da fila expirar
+             rq.arrives_at,
+             -- prazo efetivo do bot: chegada + leitura (5..45min) OU pouco
+             -- antes de a fila expirar — o que vier primeiro
              LEAST(
-               rq.queued_at + ((30 + ABS(HASHTEXT(rq.id::text)) % 211) || ' minutes')::interval,
+               rq.arrives_at + ((5 + ABS(HASHTEXT(rq.id::text)) % 41) || ' minutes')::interval,
                rq.expires_at - INTERVAL '2 minutes'
              ) AS responds_at
            FROM receiver_queue rq

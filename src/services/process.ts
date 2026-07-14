@@ -4,8 +4,10 @@ import { config } from '../config/index.js';
 import { sendPushToUser, boatComingMessage } from './push.js';
 import {
   pickNextReceiver,
+  pickRandomDestCountry,
   enqueueForReceiver,
   getLastHopCountry,
+  travelMinutes,
 } from './routing.js';
 
 /**
@@ -75,29 +77,35 @@ export async function processRouting(data: RoutingData): Promise<void> {
   const { boatId } = data;
   try {
     const lastCountry = await getLastHopCountry(boatId);
-    const nextUserId = await pickNextReceiver(boatId, lastCountry);
+    const receiver = await pickNextReceiver(boatId);
 
-    if (!nextUserId) {
+    if (!receiver) {
       // Sem receptor elegível agora — o sweep do scheduler tenta de novo depois
       console.log(`[routing] boat ${boatId} has no eligible receiver — waiting in high seas`);
       return;
     }
 
-    // receptor humano → barco "navega" alguns minutos (silhueta no horizonte);
-    // bot recebe na hora (não olha a Jornada).
-    const { rows: ur } = await pool.query(
-      `SELECT oauth_provider FROM users WHERE id = $1`, [nextUserId],
-    );
-    const isBot = ur[0]?.oauth_provider === 'bot';
-    const { warmupSecMin, warmupSecMax } = config.boat;
-    const warmup = isBot ? 0 : warmupSecMin + Math.floor(Math.random() * (warmupSecMax - warmupSecMin + 1));
+    // Destino: bot = país aleatório ativo (sorteado JÁ na partida);
+    // humano = o país dele. A viagem dura conforme a distância real.
+    const dest = receiver.isBot
+      ? await pickRandomDestCountry(boatId)
+      : receiver.country;
+    const travelMin = await travelMinutes(lastCountry, dest);
 
-    await enqueueForReceiver(boatId, nextUserId, warmup);
-    console.log(`[routing] boat ${boatId} → user ${nextUserId} (warmup ${warmup}s)`);
+    await enqueueForReceiver(boatId, receiver.id, {
+      travelMin,
+      destCountry: receiver.isBot ? dest : null,
+    });
+    console.log(
+      `[routing] boat ${boatId} → ${receiver.isBot ? `bot (${dest})` : 'humano'} ` +
+      `— viagem de ${lastCountry ?? '?'} a ${dest ?? '?'} em ${travelMin}min`,
+    );
 
     // avisa o receptor que um barco está a caminho (bots não têm token)
-    const { title, body } = boatComingMessage();
-    void sendPushToUser(nextUserId, title, body);
+    if (!receiver.isBot) {
+      const { title, body } = boatComingMessage();
+      void sendPushToUser(receiver.id, title, body);
+    }
   } catch (err) {
     console.error(`[routing] boat ${boatId} failed:`, err);
   }

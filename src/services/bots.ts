@@ -168,17 +168,16 @@ export async function ensureBots(): Promise<Map<string, string>> {
 export async function botRespondSweep(): Promise<void> {
   try {
     const { rows: entries } = await pool.query(
-      `SELECT rq.id AS queue_id, rq.boat_id, rq.user_id, u.email
+      `SELECT rq.id AS queue_id, rq.boat_id, rq.user_id, rq.dest_country, u.email
        FROM receiver_queue rq
        JOIN users u ON u.id = rq.user_id
        WHERE rq.status = 'pending'
          AND u.oauth_provider = 'bot'
          AND (
-           -- prazo "humano" aleatório 30..240 min, estável por entrada...
-           rq.queued_at < NOW() - ((30 + ABS(HASHTEXT(rq.id::text)) % 211) || ' minutes')::interval
-           -- ...mas SEMPRE responde antes de a fila expirar (senão, com um
-           -- QUEUE_TIMEOUT curto, o barco fica num pingue-pongue eterno
-           -- de filas expiradas e nunca ganha um carimbo)
+           -- o barco CHEGOU (viagem por distância real) e o "porto" levou
+           -- 5..45 min lendo e escrevendo (estável por entrada)...
+           rq.arrives_at + ((5 + ABS(HASHTEXT(rq.id::text)) % 41) || ' minutes')::interval < NOW()
+           -- ...mas SEMPRE responde antes de a fila expirar
            OR rq.expires_at < NOW() + INTERVAL '2 minutes'
          )
        LIMIT 20`,
@@ -187,16 +186,19 @@ export async function botRespondSweep(): Promise<void> {
     console.log(`[bots] respondendo ${entries.length} barco(s)`);
 
     for (const entry of entries) {
-      // País do carimbo: aleatório entre os ATIVOS que o barco ainda não
-      // visitou — assim cada barco desenha um caminho distinto pelo mundo.
+      // País do carimbo: o destino sorteado na PARTIDA (dest_country) — a
+      // viagem até ele durou o tempo da distância real. Entradas antigas
+      // (sem destino) sorteiam agora, como antes.
       const { rows: cRows } = await pool.query(
-        `SELECT code, name_pt, name_en FROM countries
-         WHERE active
-           AND code NOT IN (SELECT country_code FROM boat_countries WHERE boat_id = $1)
-         ORDER BY RANDOM() LIMIT 1`,
-        [entry.boat_id],
+        entry.dest_country
+          ? `SELECT code, name_pt, name_en FROM countries WHERE code = $1`
+          : `SELECT code, name_pt, name_en FROM countries
+             WHERE active
+               AND code NOT IN (SELECT country_code FROM boat_countries WHERE boat_id = $1)
+             ORDER BY RANDOM() LIMIT 1`,
+        [entry.dest_country ?? entry.boat_id],
       );
-      // barco já visitou todos os ativos? repete um qualquer
+      // fallback: qualquer país ativo
       const c = cRows[0] ?? (await pool.query(
         `SELECT code, name_pt, name_en FROM countries WHERE active ORDER BY RANDOM() LIMIT 1`,
       )).rows[0];
