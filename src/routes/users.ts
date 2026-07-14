@@ -91,6 +91,7 @@ export async function userRoutes(app: FastifyInstance) {
              FROM boat_country_interactions
              WHERE boat_id = b.id
            ) AS total_unique_interactions,
+           (SELECT COUNT(*)::int FROM boat_messages WHERE boat_id = b.id) AS message_count,
            lq.is_bot,
            lq.typing_at,
            lq.responds_at

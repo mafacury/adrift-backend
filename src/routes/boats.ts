@@ -4,6 +4,7 @@ import { processModeration, processRouting } from '../services/process.js';
 import { countryFromIp } from '../services/geo.js';
 import { userOwnsGift } from '../services/gifts.js';
 import { liveStateFrom } from '../services/live.js';
+import { STAGE_CASE_SQL } from '../services/progress.js';
 import { sendPushToUser, boatGiftMessage } from '../services/push.js';
 import { config } from '../config/index.js';
 
@@ -150,14 +151,7 @@ export async function boatRoutes(app: FastifyInstance) {
           `UPDATE boats
            SET
              unique_countries = (SELECT COUNT(*) FROM boat_countries WHERE boat_id = $1),
-             stage = CASE
-               WHEN (SELECT COUNT(*) FROM boat_countries WHERE boat_id = $1) >= 50 THEN 6
-               WHEN (SELECT COUNT(*) FROM boat_countries WHERE boat_id = $1) >= 35 THEN 5
-               WHEN (SELECT COUNT(*) FROM boat_countries WHERE boat_id = $1) >= 20 THEN 4
-               WHEN (SELECT COUNT(*) FROM boat_countries WHERE boat_id = $1) >= 10 THEN 3
-               WHEN (SELECT COUNT(*) FROM boat_countries WHERE boat_id = $1) >= 4  THEN 2
-               ELSE 1
-             END,
+             stage = ${STAGE_CASE_SQL},
              last_hop_at = NOW()
            WHERE id = $1`,
           [boatId],

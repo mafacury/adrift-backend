@@ -1,6 +1,7 @@
 import { pool } from '../db/pool.js';
 import { processRouting } from './process.js';
 import { COUNTRY_LANG } from './country-data.js';
+import { STAGE_CASE_SQL } from './progress.js';
 
 /**
  * Usuários virtuais (bots) espalhados pelo mundo.
@@ -256,14 +257,7 @@ export async function botRespondSweep(): Promise<void> {
           `UPDATE boats
            SET
              unique_countries = (SELECT COUNT(*) FROM boat_countries WHERE boat_id = $1),
-             stage = CASE
-               WHEN (SELECT COUNT(*) FROM boat_countries WHERE boat_id = $1) >= 50 THEN 6
-               WHEN (SELECT COUNT(*) FROM boat_countries WHERE boat_id = $1) >= 35 THEN 5
-               WHEN (SELECT COUNT(*) FROM boat_countries WHERE boat_id = $1) >= 20 THEN 4
-               WHEN (SELECT COUNT(*) FROM boat_countries WHERE boat_id = $1) >= 10 THEN 3
-               WHEN (SELECT COUNT(*) FROM boat_countries WHERE boat_id = $1) >= 4  THEN 2
-               ELSE 1
-             END,
+             stage = ${STAGE_CASE_SQL},
              last_hop_at = NOW()
            WHERE id = $1`,
           [entry.boat_id],
