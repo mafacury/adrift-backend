@@ -274,6 +274,15 @@ export async function boatRoutes(app: FastifyInstance) {
         return reply.code(403).send({ error: 'forbidden' });
       }
 
+      // O lançamento é o "ponto 1" da jornada: país e mensagem inicial do
+      // criador entram como primeiro item, antes dos pulos reais — assim o
+      // barco aparece no mapa desde o momento em que é lançado.
+      const { rows: firstMsg } = await pool.query(
+        `SELECT country_code, content FROM boat_messages
+         WHERE boat_id = $1 ORDER BY created_at ASC LIMIT 1`,
+        [boatId],
+      );
+
       // Hop history with messages
       const { rows: hops } = await pool.query(
         `SELECT
@@ -293,6 +302,16 @@ export async function boatRoutes(app: FastifyInstance) {
          ORDER BY h.hopped_at ASC`,
         [boatId],
       );
+
+      if (firstMsg.length) {
+        hops.unshift({
+          id: `launch-${boatId}`,
+          country_code: firstMsg[0].country_code,
+          hopped_at: boat.created_at,
+          message: firstMsg[0].content,
+          interaction_count: 0,
+        });
+      }
 
       // Estado "ao vivo" (ver services/live.ts): humanos = sinal real de
       // digitação; bots = prazo determinístico. Não revela país nem horário.

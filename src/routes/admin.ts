@@ -317,6 +317,25 @@ export async function adminRoutes(app: FastifyInstance) {
         [req.params.id],
       );
 
+      // Lançamento = ponto 1 (mesma convenção da rota /boats/:id/route)
+      const { rows: fm } = await pool.query(
+        `SELECT bm.country_code, bm.content, c.name_pt
+         FROM boat_messages bm
+         LEFT JOIN countries c ON c.code = bm.country_code
+         WHERE bm.boat_id = $1 ORDER BY bm.created_at ASC LIMIT 1`,
+        [req.params.id],
+      );
+      if (fm.length) {
+        hops.unshift({
+          id: `launch-${req.params.id}`,
+          country_code: fm[0].country_code,
+          country_name: fm[0].name_pt,
+          hopped_at: boatRows[0].created_at,
+          message: fm[0].content,
+          author_email: boatRows[0].creator_email,
+        });
+      }
+
       return reply.send({ boat: boatRows[0], hops });
     },
   );
