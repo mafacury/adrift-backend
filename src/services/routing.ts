@@ -34,6 +34,18 @@ export async function pickNextReceiver(
           FROM boat_ignore_counts
           WHERE boat_id = $1 AND user_id = u.id
         ) < $3
+        -- humano com a fila cheia (2+ barcos pendentes) não recebe mais —
+        -- evita barcos empilhados 12h em poucas contas
+        AND (
+          u.oauth_provider = 'bot'
+          OR (SELECT COUNT(*) FROM receiver_queue rq2
+              WHERE rq2.user_id = u.id AND rq2.status = 'pending') < 2
+        )
+        -- quem deixou ESTE barco expirar não o recebe de novo
+        AND u.id NOT IN (
+          SELECT user_id FROM receiver_queue
+          WHERE boat_id = $1 AND status = 'expired'
+        )
         -- no active moderation penalty
         AND u.reputation_score > 0
     )
