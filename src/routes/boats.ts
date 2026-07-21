@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { pool } from '../db/pool.js';
 import { processModeration, processRouting } from '../services/process.js';
 import { countryFromIp } from '../services/geo.js';
-import { userOwnsGift } from '../services/gifts.js';
+import { userOwnsGift, giftInfo } from '../services/gifts.js';
 import { liveStateFrom } from '../services/live.js';
 import { STAGE_CASE_SQL } from '../services/progress.js';
 import { sendPushToUser, boatGiftMessage } from '../services/push.js';
@@ -272,7 +272,7 @@ export async function boatRoutes(app: FastifyInstance) {
       // criador entram como primeiro item, antes dos pulos reais — assim o
       // barco aparece no mapa desde o momento em que é lançado.
       const { rows: firstMsg } = await pool.query(
-        `SELECT country_code, content FROM boat_messages
+        `SELECT country_code, content, gift_id FROM boat_messages
          WHERE boat_id = $1 ORDER BY created_at ASC LIMIT 1`,
         [boatId],
       );
@@ -284,6 +284,7 @@ export async function boatRoutes(app: FastifyInstance) {
            h.country_code,
            h.hopped_at,
            bm.content AS message,
+           bm.gift_id,
            bci.interaction_count
          FROM boat_hops h
          LEFT JOIN boat_messages bm ON bm.id = h.message_id
@@ -303,6 +304,7 @@ export async function boatRoutes(app: FastifyInstance) {
           country_code: firstMsg[0].country_code,
           hopped_at: boat.created_at,
           message: firstMsg[0].content,
+          gift_id: firstMsg[0].gift_id,
           interaction_count: 0,
         });
       }
@@ -328,8 +330,15 @@ export async function boatRoutes(app: FastifyInstance) {
         [boatId],
       );
 
+      // Resolve o código do presente no catálogo (nome + emoji) para o painel
+      // do mapa mostrar o presente AO LADO da mensagem em que foi deixado.
+      const hopsWithGifts = hops.map(({ gift_id, ...h }) => ({
+        ...h,
+        gift: giftInfo(gift_id ?? null),
+      }));
+
       return reply.send({
-        boat, hops,
+        boat, hops: hopsWithGifts,
         live: { state: liveStateFrom(liveRows[0], boat.status) },
       });
     },
