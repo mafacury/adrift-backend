@@ -57,7 +57,12 @@ export async function processModeration(data: ModerationData): Promise<void> {
       console.log(`[moderation] boat ${boatId} approved → routing`);
       await processRouting({ boatId, fromUserId: userId });
     } else if (verdict === 'rejected') {
-      await pool.query(`UPDATE boats SET status = 'archived' WHERE id = $1`, [boatId]);
+      await pool.query(
+        `UPDATE boats SET status = 'archived', archived_at = NOW(),
+                          archive_reason = 'moderado'
+         WHERE id = $1`,
+        [boatId],
+      );
       console.log(`[moderation] boat ${boatId} rejected (layer ${layer}): ${detail}`);
     } else {
       await pool.query(`UPDATE boats SET status = 'paused' WHERE id = $1`, [boatId]);
@@ -76,6 +81,13 @@ export interface RoutingData {
 export async function processRouting(data: RoutingData): Promise<void> {
   const { boatId } = data;
   try {
+    // Barco voltando para casa (ou arquivado/pausado) não segue adiante —
+    // a fila dele pode expirar durante a volta e cairia aqui.
+    const { rows: st } = await pool.query(
+      `SELECT status FROM boats WHERE id = $1`, [boatId],
+    );
+    if (st[0]?.status !== 'active') return;
+
     const lastCountry = await getLastHopCountry(boatId);
     const receiver = await pickNextReceiver(boatId);
 

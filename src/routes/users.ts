@@ -3,6 +3,7 @@ import { pool } from '../db/pool.js';
 import { getAchievementsForUser } from '../services/achievements.js';
 import { getGiftsForUser, giftInfo } from '../services/gifts.js';
 import { liveStateFrom, departsInSeconds } from '../services/live.js';
+import { MIN_COUNTRIES_TO_RETURN, REASON_LABEL, ArchiveReason } from '../services/journey.js';
 
 export async function userRoutes(app: FastifyInstance) {
   // ── GET /users/me/achievements ─────────────────────────────────────────────
@@ -85,6 +86,8 @@ export async function userRoutes(app: FastifyInstance) {
            b.unique_countries,
            b.created_at,
            b.last_hop_at,
+           b.arrives_home_at,
+           b.unique_countries >= ${MIN_COUNTRIES_TO_RETURN} AS can_return,
            LEFT(bm.content, 80) AS initial_message,
            (
              SELECT COUNT(DISTINCT user_id)
@@ -119,6 +122,7 @@ export async function userRoutes(app: FastifyInstance) {
            LIMIT 1
          ) lq ON TRUE
          WHERE b.creator_user_id = $1
+           AND b.status <> 'archived'   -- arquivados vivem no Museu do Porto
          ORDER BY b.created_at DESC`,
         [userId],
       );
@@ -136,6 +140,45 @@ export async function userRoutes(app: FastifyInstance) {
         };
       });
 
+      return reply.send({ boats });
+    },
+  );
+
+  // ── GET /users/me/archive ──────────────────────────────────────────────────
+  // Museu do Porto: um quadro por barco arquivado, do mais recente ao mais
+  // antigo. Só os números do quadro — as mensagens vêm no pergaminho
+  // (GET /boats/:id/scroll).
+  app.get(
+    '/users/me/archive',
+    {},
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+
+      const { rows } = await pool.query(
+        `SELECT
+           b.id, b.stage, b.unique_countries, b.total_nm, b.archive_reason,
+           b.created_at, b.archived_at, b.final_note,
+           EXTRACT(DAY FROM b.archived_at - b.created_at)::int AS days_at_sea,
+           (SELECT COUNT(*)::int FROM boat_messages WHERE boat_id = b.id) AS message_count,
+           (SELECT COUNT(*)::int FROM boat_messages
+             WHERE boat_id = b.id AND gift_id IS NOT NULL)                AS gift_count,
+           LEFT(bm.content, 80) AS initial_message
+         FROM boats b
+         JOIN boat_messages bm
+           ON bm.boat_id = b.id
+           AND bm.created_at = (
+             SELECT MIN(created_at) FROM boat_messages WHERE boat_id = b.id
+           )
+         WHERE b.creator_user_id = $1 AND b.status = 'archived'
+         ORDER BY b.archived_at DESC NULLS LAST`,
+        [userId],
+      );
+
+      const boats = rows.map((r) => ({
+        ...r,
+        reason_label: REASON_LABEL[(r.archive_reason ?? 'perdido') as ArchiveReason],
+      }));
       return reply.send({ boats });
     },
   );

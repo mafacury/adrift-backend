@@ -5,6 +5,7 @@ import { countryFromIp } from '../services/geo.js';
 import { userOwnsGift, giftInfo } from '../services/gifts.js';
 import { liveStateFrom } from '../services/live.js';
 import { STAGE_CASE_SQL } from '../services/progress.js';
+import { startReturn, MIN_COUNTRIES_TO_RETURN } from '../services/journey.js';
 import { sendPushToUser, boatGiftMessage } from '../services/push.js';
 import { config } from '../config/index.js';
 
@@ -119,6 +120,8 @@ export async function boatRoutes(app: FastifyInstance) {
             [boatId, userId, content, countryCode, gift],
           );
           messageId = msgResult.rows[0].id;
+          // conteúdo novo = assunto vivo: zera o contador de "deixaram passar"
+          await pool.query(`UPDATE boats SET idle_ignores = 0 WHERE id = $1`, [boatId]);
         }
 
         // Record hop immediately (receptor interacted — boat is "here" now)
@@ -214,6 +217,14 @@ export async function boatRoutes(app: FastifyInstance) {
           [boatId, userId],
         );
 
+        // "Deixaram passar" SEGUIDOS — o sinal de que o assunto se esgotou.
+        // Qualquer mensagem nova zera; chegando a MAX_IDLE_IGNORES o barco
+        // volta para casa (services/journey.ts).
+        await pool.query(
+          `UPDATE boats SET idle_ignores = idle_ignores + 1 WHERE id = $1`,
+          [boatId],
+        );
+
         await pool.query('COMMIT');
 
         // Re-route to someone else (em background)
@@ -224,6 +235,74 @@ export async function boatRoutes(app: FastifyInstance) {
         await pool.query('ROLLBACK');
         throw err;
       }
+    },
+  );
+
+  // ── POST /boats/:id/return ─────────────────────────────────────────────────
+  // "Chamar de volta": encerra a jornada por escolha do dono. O barco para de
+  // receber mensagens na hora e navega de volta em TEMPO REAL (1 a 5 dias,
+  // pela distância). Não dá para cancelar — é isso que dá peso à decisão.
+  app.post<{ Params: { id: string } }>(
+    '/boats/:id/return',
+    {},
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+
+      const { rows } = await pool.query(
+        `SELECT creator_user_id, status, unique_countries FROM boats WHERE id = $1`,
+        [req.params.id],
+      );
+      if (!rows.length) return reply.code(404).send({ error: 'boat not found' });
+      const boat = rows[0];
+
+      if (boat.creator_user_id !== userId) {
+        return reply.code(403).send({ error: 'forbidden' });
+      }
+      if (boat.status === 'returning') {
+        return reply.code(409).send({ error: 'already_returning' });
+      }
+      if (boat.status !== 'active') {
+        return reply.code(409).send({ error: 'not_active' });
+      }
+      if (boat.unique_countries < MIN_COUNTRIES_TO_RETURN) {
+        return reply.code(409).send({
+          error: 'too_early',
+          minCountries: MIN_COUNTRIES_TO_RETURN,
+        });
+      }
+
+      const { arrivesHomeAt } = await startReturn(req.params.id, 'chamado');
+      return reply.send({ status: 'returning', arrives_home_at: arrivesHomeAt });
+    },
+  );
+
+  // ── POST /boats/:id/final-note ─────────────────────────────────────────────
+  // A última página do diário: a despedida que o dono escreve quando o barco
+  // atraca. Opcional — a jornada começou com uma mensagem dele e termina com
+  // uma mensagem dele.
+  app.post<{ Params: { id: string }; Body: { note?: string } }>(
+    '/boats/:id/final-note',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          properties: { note: { type: 'string', maxLength: 500 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+
+      const note = (req.body?.note ?? '').trim();
+      const { rowCount } = await pool.query(
+        `UPDATE boats SET final_note = $3
+         WHERE id = $1 AND creator_user_id = $2 AND status = 'archived'`,
+        [req.params.id, userId, note || null],
+      );
+      if (!rowCount) return reply.code(404).send({ error: 'boat not found' });
+      return reply.send({ status: 'ok' });
     },
   );
 
@@ -258,7 +337,10 @@ export async function boatRoutes(app: FastifyInstance) {
 
       // Only the creator can see the full route
       const { rows: boatRows } = await pool.query(
-        `SELECT id, creator_user_id, status, stage, unique_countries, created_at, last_hop_at
+        `SELECT id, creator_user_id, status, stage, unique_countries, created_at, last_hop_at,
+                returning_at, arrives_home_at, archived_at, archive_reason,
+                final_note, total_nm,
+                unique_countries >= ${MIN_COUNTRIES_TO_RETURN} AS can_return
          FROM boats WHERE id = $1`,
         [boatId],
       );
@@ -346,7 +428,12 @@ export async function boatRoutes(app: FastifyInstance) {
 
   // ── GET /rankings ──────────────────────────────────────────────────────────
   // Ranking de BARCOS (anônimo): pontos = interações (mensagens de terceiros)
-  // + presentes recebidos × 10. scope=world | country (país do criador).
+  // + presentes recebidos × 10.
+  //   scope=world    — barcos em alto-mar (mundial)
+  //   scope=country  — barcos em alto-mar do país do criador
+  //   scope=legends  — LENDAS: hall da fama permanente dos arquivados. Assim
+  //                    aposentar um barco bem colocado o PROMOVE para a lista
+  //                    eterna em vez de apagá-lo.
   // Barcos de bots/demo ficam de fora. Inclui a posição do melhor barco do
   // usuário logado, mesmo fora do Top 50.
   app.get<{ Querystring: { scope?: string } }>(
@@ -355,6 +442,12 @@ export async function boatRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const userId = (req as any).user?.id;
       if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+
+      const legends = req.query.scope === 'legends';
+      // Fragmento derivado de lista fechada — nunca de entrada do usuário.
+      const statusSql = legends
+        ? `b.status = 'archived' AND b.archive_reason IS DISTINCT FROM 'moderado'`
+        : `b.status <> 'archived'`;
 
       let countryFilter: string | null = null;
       if (req.query.scope === 'country') {
@@ -368,6 +461,7 @@ export async function boatRoutes(app: FastifyInstance) {
         WITH scored AS (
           SELECT
             b.id, b.stage, b.creator_user_id,
+            b.archive_reason, b.total_nm, b.unique_countries,
             u.country_code,
             (SELECT LEFT(content, 60) FROM boat_messages
              WHERE boat_id = b.id ORDER BY created_at ASC LIMIT 1) AS initial_message,
@@ -379,6 +473,7 @@ export async function boatRoutes(app: FastifyInstance) {
           FROM boats b
           JOIN users u ON u.id = b.creator_user_id
           WHERE u.oauth_provider IS DISTINCT FROM 'bot'
+            AND ${statusSql}
             AND ($1::text IS NULL OR u.country_code = $1)
         ),
         ranked AS (
@@ -392,6 +487,7 @@ export async function boatRoutes(app: FastifyInstance) {
         `${rankedSql}
          SELECT pos, id, stage, country_code, initial_message,
                 interactions, gifts, score,
+                archive_reason, total_nm, unique_countries,
                 (creator_user_id = $2) AS is_mine
          FROM ranked
          ORDER BY pos, id
@@ -408,7 +504,7 @@ export async function boatRoutes(app: FastifyInstance) {
       );
 
       return reply.send({
-        scope: countryFilter ? 'country' : 'world',
+        scope: legends ? 'legends' : countryFilter ? 'country' : 'world',
         country: countryFilter,
         rows: top,
         me: mine[0] ?? null,

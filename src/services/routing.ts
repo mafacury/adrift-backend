@@ -16,7 +16,7 @@ const MAX_PENDING_HUMAN = 2;     // teto de barcos aguardando por humano
 
 export interface Receiver { id: string; isBot: boolean; country: string | null }
 
-function haversineKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
+export function haversineKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
   const rad = Math.PI / 180;
   const dLat = (bLat - aLat) * rad;
   const dLon = (bLon - aLon) * rad;

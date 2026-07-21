@@ -2,7 +2,7 @@ import cron from 'node-cron';
 import { pool } from '../db/pool.js';
 import { processRouting, sweepStrandedBoats } from './process.js';
 import { botRespondSweep } from './bots.js';
-import { config } from '../config/index.js';
+import { journeySweep } from './journey.js';
 
 export function startScheduler() {
   // Every minute: expire timed-out queue entries and reroute those boats
@@ -34,29 +34,11 @@ export function startScheduler() {
   // Every 15 min: re-route boats stranded without a pending queue entry
   cron.schedule('*/15 * * * *', sweepStrandedBoats);
 
-  // Daily at 02:00 UTC: archive boats idle for BOAT_IDLE_DAYS
-  cron.schedule('0 2 * * *', async () => {
-    try {
-      const idleDays = config.boat.boatIdleDays;
-      const { rows } = await pool.query(
-        `UPDATE boats
-         SET status = 'archived'
-         WHERE status = 'active'
-           AND last_hop_at < NOW() - ($1 || ' days')::INTERVAL
-         RETURNING id, creator_user_id, unique_countries`,
-        [idleDays],
-      );
-
-      for (const boat of rows) {
-        console.log(
-          `[scheduler] archived boat ${boat.id} (${boat.unique_countries} countries)`,
-        );
-        // TODO: send push notification to creator when FCM is wired up
-      }
-    } catch (err) {
-      console.error('[scheduler] archival error', err);
-    }
-  });
+  // A cada minuto: fim da jornada — chegadas em casa, partidas represadas e
+  // os gatilhos automáticos (Nau Lendária, assunto esgotado, perdido no mar).
+  // Substitui o antigo job diário que arquivava barcos parados sem cerimônia:
+  // agora o barco faz a travessia de volta e vira quadro no museu.
+  cron.schedule('* * * * *', journeySweep);
 
   console.log('[scheduler] started (inline processing, no Redis)');
 }
