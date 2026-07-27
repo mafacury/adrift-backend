@@ -4,6 +4,7 @@ import { processModeration, processRouting } from '../services/process.js';
 import { countryFromIp } from '../services/geo.js';
 import { userOwnsGift, giftInfo } from '../services/gifts.js';
 import { liveStateFrom } from '../services/live.js';
+import { greatCirclePoint, legProgress } from '../services/horizon.js';
 import { STAGE_CASE_SQL } from '../services/progress.js';
 import { startReturn, MIN_COUNTRIES_TO_RETURN } from '../services/journey.js';
 import { sendPushToUser, boatGiftMessage } from '../services/push.js';
@@ -398,6 +399,13 @@ export async function boatRoutes(app: FastifyInstance) {
            (u.oauth_provider = 'bot') AS is_bot,
            rq.typing_at,
            rq.arrives_at,
+           rq.queued_at,
+           -- pontas da travessia, só para calcular ONDE ele está agora;
+           -- o destino não sai daqui (ver o objeto leg montado abaixo)
+           COALESCE(oh.lat, om.lat) AS o_lat,
+           COALESCE(oh.lon, om.lon) AS o_lon,
+           dc.lat AS d_lat,
+           dc.lon AS d_lon,
            -- prazo efetivo do bot: chegada + leitura (5..45min) OU pouco
            -- antes de a fila expirar — o que vier primeiro
            LEAST(
@@ -406,6 +414,21 @@ export async function boatRoutes(app: FastifyInstance) {
            ) AS responds_at
          FROM receiver_queue rq
          JOIN users u ON u.id = rq.user_id
+         LEFT JOIN countries dc ON dc.code = COALESCE(rq.dest_country, u.country_code)
+         -- porto de partida: o último pulo antes de zarpar
+         LEFT JOIN LATERAL (
+           SELECT c.lat, c.lon
+           FROM boat_hops h JOIN countries c ON c.code = h.country_code
+           WHERE h.boat_id = rq.boat_id AND h.hopped_at <= rq.queued_at
+           ORDER BY h.hopped_at DESC LIMIT 1
+         ) oh ON TRUE
+         -- barco que ainda não pulou: parte de onde foi lançado
+         LEFT JOIN LATERAL (
+           SELECT c.lat, c.lon
+           FROM boat_messages m JOIN countries c ON c.code = m.country_code
+           WHERE m.boat_id = rq.boat_id
+           ORDER BY m.created_at ASC LIMIT 1
+         ) om ON TRUE
          WHERE rq.boat_id = $1 AND rq.status = 'pending'
          ORDER BY rq.queued_at DESC
          LIMIT 1`,
@@ -419,9 +442,40 @@ export async function boatRoutes(app: FastifyInstance) {
         gift: giftInfo(gift_id ?? null),
       }));
 
+      // Perna em andamento: onde o barco está AGORA e quanto falta. Serve para
+      // o mapa desenhar a travessia se preenchendo em vez de deixar o barco
+      // parado no porto por horas.
+      //
+      // Sai daqui a posição atual e o tempo — NÃO o destino. Quem recebe o
+      // barco continua sendo surpresa: a linha some na bruma adiante do casco.
+      // (O país só se revela quando vira pulo, como sempre foi.)
+      //
+      // Nem a FRAÇÃO da travessia sai: com a partida (que é pública), a posição
+      // e a fração, uma regra de três devolveria o destino. Só a posição e o
+      // relógio, que é o que a tela precisa.
+      const lr = liveRows[0];
+      let leg: { lat: number; lon: number; etaSeconds: number } | null = null;
+      if (lr?.o_lat != null && lr?.d_lat != null && lr?.arrives_at) {
+        const startedMs = new Date(lr.queued_at).getTime();
+        const arrivesMs = new Date(lr.arrives_at).getTime();
+        const now = Date.now();
+        if (arrivesMs > now) {
+          const f = legProgress(startedMs, arrivesMs, now);
+          const p = greatCirclePoint(
+            Number(lr.o_lat), Number(lr.o_lon), Number(lr.d_lat), Number(lr.d_lon), f,
+          );
+          leg = {
+            lat: Math.round(p.lat * 100) / 100,
+            lon: Math.round(p.lon * 100) / 100,
+            etaSeconds: Math.round((arrivesMs - now) / 1000),
+          };
+        }
+      }
+
       return reply.send({
         boat, hops: hopsWithGifts,
         live: { state: liveStateFrom(liveRows[0], boat.status) },
+        leg,
       });
     },
   );

@@ -256,6 +256,71 @@ export async function userRoutes(app: FastifyInstance) {
     },
   );
 
+  // ── GET /countries ─────────────────────────────────────────────────────────
+  // Lista para o seletor de país. Só os ativos: o admin desliga países onde o
+  // app não deve operar, e eles não podem aparecer como opção.
+  app.get('/countries', {}, async (_req, reply) => {
+    const { rows } = await pool.query(
+      `SELECT code, name_pt AS name FROM countries WHERE active ORDER BY name_pt`,
+    );
+    return reply.send({ countries: rows });
+  });
+
+  // ── País do usuário ────────────────────────────────────────────────────────
+  // O país sai do IP (ver services/geo.ts). Quando o IP não entrega nada, fica
+  // 'XX' e a pessoa perde coisas silenciosamente: o horizonte fica vazio e as
+  // mensagens dela são carimbadas com 🌍. Aqui ela conserta isso à mão.
+  app.get('/users/me/country', {}, async (req, reply) => {
+    const userId = (req as any).user?.id;
+    if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+    const { rows } = await pool.query(
+      `SELECT u.country_code, (c.code IS NOT NULL) AS known
+       FROM users u LEFT JOIN countries c ON c.code = u.country_code AND c.active
+       WHERE u.id = $1`,
+      [userId],
+    );
+    const country = rows[0]?.country_code ?? null;
+    return reply.send({ country, needsPick: !rows[0]?.known });
+  });
+
+  app.post<{ Body: { country: string } }>(
+    '/users/me/country',
+    { schema: { body: { type: 'object', required: ['country'], properties: {
+      country: { type: 'string', minLength: 2, maxLength: 2 },
+    } } } },
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+
+      const code = req.body.country.toUpperCase();
+      const { rows: valid } = await pool.query(
+        `SELECT code FROM countries WHERE code = $1 AND active`, [code],
+      );
+      if (!valid.length) return reply.code(400).send({ error: 'país desconhecido' });
+
+      // Só quem está sem país escolhe. Se o IP já disse de onde a pessoa fala,
+      // trocar à mão viraria uma forma de forjar bandeira e inflar a contagem
+      // de países dos barcos.
+      const { rows: cur } = await pool.query(
+        `SELECT u.email, u.role, (c.code IS NOT NULL) AS known
+         FROM users u LEFT JOIN countries c ON c.code = u.country_code AND c.active
+         WHERE u.id = $1`,
+        [userId],
+      );
+      if (!cur.length) return reply.code(404).send({ error: 'usuário não encontrado' });
+      if (cur[0].known) return reply.code(409).send({ error: 'seu país já está definido' });
+
+      await pool.query(`UPDATE users SET country_code = $1 WHERE id = $2`, [code, userId]);
+
+      // Token novo: o país viaja dentro dele e é o que carimba as mensagens
+      // (ver routes/boats.ts). Sem isso, a correção só valeria no próximo login.
+      const token = app.jwt.sign({
+        id: userId, email: cur[0].email, country: code, role: cur[0].role,
+      });
+      return reply.send({ country: code, token });
+    },
+  );
+
   // ── GET /users/me/horizon ──────────────────────────────────────────────────
   // Os barcos que estão no mar agora, vistos do convés de quem pergunta:
   // distância e marcação, nada mais (ver services/horizon.ts).

@@ -107,12 +107,22 @@ export async function authRoutes(app: FastifyInstance) {
         return reply.code(401).send({ error: 'Email ou senha incorretos.' });
       }
 
-      // Atualiza last_active_at e country_code a cada login
-      const loginCountry = await countryFromIp(req.ip);
-      await pool.query(
-        'UPDATE users SET last_active_at = NOW(), country_code = $1 WHERE id = $2',
-        [loginCountry, user.id],
+      // Atualiza last_active_at e country_code a cada login — o país segue a
+      // pessoa quando ela viaja. Mas um IP que não resolve ('XX') NÃO apaga o
+      // país que já se sabia: sem essa guarda, uma VPN ou um login pelo Wi-Fi
+      // errado zeraria o país (e, com ele, o horizonte e a bandeira das
+      // mensagens) de quem já estava certo — inclusive de quem acabou de
+      // escolher o país à mão em /users/me/country.
+      const detected = await countryFromIp(req.ip);
+      const { rows: upd } = await pool.query(
+        `UPDATE users
+         SET last_active_at = NOW(),
+             country_code = CASE WHEN $1 = 'XX' THEN country_code ELSE $1 END
+         WHERE id = $2
+         RETURNING country_code`,
+        [detected, user.id],
       );
+      const loginCountry = upd[0]?.country_code ?? detected;
 
       const token = app.jwt.sign({ id: user.id, email: user.email, country: loginCountry, role: user.role });
 

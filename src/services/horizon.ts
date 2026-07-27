@@ -103,19 +103,22 @@ async function inFlightLegs(): Promise<Leg[]> {
   return legs;
 }
 
-/** Onde a travessia está no instante `atMs`, sobre o grande círculo. */
-function positionAt(leg: Leg, atMs: number): { lat: number; lon: number } {
-  const total = Math.max(leg.arrivesMs - leg.startedMs, 1);
-  const f = Math.min(Math.max((atMs - leg.startedMs) / total, 0), 1);
-
-  const φ1 = leg.oLat * RAD, λ1 = leg.oLon * RAD;
-  const φ2 = leg.dLat * RAD, λ2 = leg.dLon * RAD;
+/**
+ * Ponto a `f` (0..1) do caminho de A para B sobre o grande círculo — a rota
+ * que um navio realmente faz, não a reta do mapa plano. Usado pelo horizonte e
+ * pela perna em andamento que o mapa desenha (ver routes/boats.ts).
+ */
+export function greatCirclePoint(
+  aLat: number, aLon: number, bLat: number, bLon: number, f: number,
+): { lat: number; lon: number } {
+  const φ1 = aLat * RAD, λ1 = aLon * RAD;
+  const φ2 = bLat * RAD, λ2 = bLon * RAD;
 
   const d = 2 * Math.asin(Math.sqrt(
     Math.sin((φ2 - φ1) / 2) ** 2 +
     Math.cos(φ1) * Math.cos(φ2) * Math.sin((λ2 - λ1) / 2) ** 2,
   ));
-  if (d < 1e-9) return { lat: leg.dLat, lon: leg.dLon };
+  if (d < 1e-9) return { lat: bLat, lon: bLon };
 
   const a = Math.sin((1 - f) * d) / Math.sin(d);
   const b = Math.sin(f * d) / Math.sin(d);
@@ -127,6 +130,20 @@ function positionAt(leg: Leg, atMs: number): { lat: number; lon: number } {
     lat: Math.atan2(z, Math.hypot(x, y)) / RAD,
     lon: Math.atan2(y, x) / RAD,
   };
+}
+
+/** Fração da travessia já navegada, pelo relógio. */
+export function legProgress(startedMs: number, arrivesMs: number, atMs: number): number {
+  const total = Math.max(arrivesMs - startedMs, 1);
+  return Math.min(Math.max((atMs - startedMs) / total, 0), 1);
+}
+
+/** Onde a travessia está no instante `atMs`. */
+function positionAt(leg: Leg, atMs: number): { lat: number; lon: number } {
+  return greatCirclePoint(
+    leg.oLat, leg.oLon, leg.dLat, leg.dLon,
+    legProgress(leg.startedMs, leg.arrivesMs, atMs),
+  );
 }
 
 function nauticalMiles(aLat: number, aLon: number, bLat: number, bLon: number): number {
