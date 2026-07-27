@@ -146,12 +146,18 @@ const REPLIES_BY_LANG: Record<string, string[]> = {
 export async function ensureBots(): Promise<Map<string, string>> {
   const ids = new Map<string, string>();
   for (const bot of BOTS) {
+    // O país TEM de ir junto: users.country_code tem default 'XX' (migração
+    // 002), e omiti-lo aqui fazia cada porto nascer sem lugar no mundo — um
+    // código que não existe na tabela countries. Cada bot já declara o seu na
+    // lista acima; é esse que vale.
     const { rows } = await pool.query(
-      `INSERT INTO users (email, oauth_provider, oauth_id, reputation_score, ban_status, last_active_at)
-       VALUES ($1, 'bot', $2, 100, 'active', NOW())
-       ON CONFLICT (email) DO UPDATE SET last_active_at = NOW()
+      `INSERT INTO users (email, oauth_provider, oauth_id, country_code, reputation_score, ban_status, last_active_at)
+       VALUES ($1, 'bot', $2, $3, 100, 'active', NOW())
+       ON CONFLICT (email) DO UPDATE
+         SET last_active_at = NOW(),
+             country_code   = EXCLUDED.country_code
        RETURNING id`,
-      [bot.email, bot.oauthId],
+      [bot.email, bot.oauthId, bot.country],
     );
     ids.set(bot.email, rows[0].id);
   }
