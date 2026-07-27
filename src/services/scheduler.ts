@@ -3,6 +3,7 @@ import { pool } from '../db/pool.js';
 import { processRouting, sweepStrandedBoats } from './process.js';
 import { botRespondSweep } from './bots.js';
 import { journeySweep } from './journey.js';
+import { reengageSweep } from './reengage.js';
 
 export function startScheduler() {
   // Every minute: expire timed-out queue entries and reroute those boats
@@ -39,6 +40,10 @@ export function startScheduler() {
   // Substitui o antigo job diário que arquivava barcos parados sem cerimônia:
   // agora o barco faz a travessia de volta e vira quadro no museu.
   cron.schedule('* * * * *', journeySweep);
+
+  // Uma vez por dia, às 15h UTC (fim de manhã no Brasil, tarde na Europa):
+  // chama de volta quem sumiu. Não reserva barco — ver services/reengage.ts.
+  cron.schedule('0 15 * * *', reengageSweep);
 
   console.log('[scheduler] started (inline processing, no Redis)');
 }

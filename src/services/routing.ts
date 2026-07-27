@@ -11,8 +11,36 @@ const TRAVEL_BASE_MIN   = 20;    // minutos mínimos de qualquer travessia
 const TRAVEL_KM_PER_MIN = 30;    // "velocidade" do barco
 const TRAVEL_MAX_MIN    = 720;   // teto: meio dia até o outro lado do mundo
 const DEFAULT_KM        = 7000;  // distância padrão quando falta coordenada
-const ARRIVAL_GAP_MIN   = 45;    // espaçamento mínimo entre chegadas p/ humano
 const MAX_PENDING_HUMAN = 2;     // teto de barcos aguardando por humano
+
+/**
+ * Cota diária por pessoa — o item de equilíbrio do fluxo.
+ *
+ * A oferta de barcos cresce junto com a comunidade (cada pessoa lança os seus,
+ * e cada barco dá ~9 pulos por dia), então sem teto o que cada um recebe
+ * depende da razão barcos/pessoas, não de um número desejado. Hoje seriam ~34
+ * por dia para cada humano; num app grande, o mesmo descontrole com outra
+ * conta. Fixar a cota resolve nos dois extremos e é o número que a gente
+ * realmente quer decidir: quantos barcos um dia de app entrega a alguém.
+ *
+ * O excedente não se perde — vai para os bots, que existem justamente para ser
+ * o oceano de reserva.
+ */
+const DAILY_TARGET_HUMAN = 8;
+/** Espaçamento tirado da própria cota: 8 por dia = um a cada 3 h. */
+const ARRIVAL_GAP_MIN = Math.round((24 * 60) / DAILY_TARGET_HUMAN);
+
+/**
+ * Revisita: um barco pode voltar a quem já o recebeu, desde que a passagem
+ * tenha sido há muito tempo E ele tenha mudado bastante desde então.
+ *
+ * A regra "viu uma vez, nunca mais" protege a surpresa, mas numa comunidade
+ * pequena ela estrangula: com 34 barcos vivos, o único usuário ativo já tinha
+ * visto 27 e ficava sem NENHUM elegível. Um barco com dezenas de paradas novas
+ * é, na prática, outro barco — as mensagens que ele carrega são outras.
+ */
+const REVISIT_DAYS     = 21;
+const REVISIT_NEW_MSGS = 15;
 
 export interface Receiver { id: string; isBot: boolean; country: string | null }
 
@@ -76,9 +104,18 @@ export async function pickNextReceiver(boatId: string): Promise<Receiver | null>
        AND u.oauth_provider IS DISTINCT FROM 'bot'
        AND u.last_active_at >= NOW() - INTERVAL '7 days'
        AND u.reputation_score > 0
-       -- nunca viu este barco / não é o criador
-       AND u.id NOT IN (SELECT to_user_id FROM boat_hops WHERE boat_id = $1)
+       -- não é o criador
        AND u.id != (SELECT creator_user_id FROM boats WHERE id = $1)
+       -- nunca viu este barco — ou viu há muito tempo e ele mudou bastante
+       AND NOT EXISTS (
+         SELECT 1 FROM boat_hops h
+         WHERE h.boat_id = $1 AND h.to_user_id = u.id
+           AND (
+             h.hopped_at > NOW() - INTERVAL '${REVISIT_DAYS} days'
+             OR (SELECT COUNT(*) FROM boat_messages m
+                 WHERE m.boat_id = $1 AND m.created_at > h.hopped_at) < ${REVISIT_NEW_MSGS}
+           )
+       )
        -- não ignorou este barco além do limite
        AND (SELECT COALESCE(SUM(count), 0) FROM boat_ignore_counts
             WHERE boat_id = $1 AND user_id = u.id) < $2
@@ -88,12 +125,20 @@ export async function pickNextReceiver(boatId: string): Promise<Receiver | null>
        -- teto de fila (anti-enchente)
        AND (SELECT COUNT(*) FROM receiver_queue rq2
             WHERE rq2.user_id = u.id AND rq2.status = 'pending') < ${MAX_PENDING_HUMAN}
-       -- espaçamento mínimo entre chegadas
+       -- espaçamento entre chegadas (a cota diluída no dia). A janela é dos
+       -- dois lados de agora: olhar só "arrives_at > NOW() - gap" barrava por
+       -- QUALQUER chegada futura, e como uma travessia leva ~5 h em média, a
+       -- pessoa ficava travada por 8 h — a cota nunca seria alcançável.
        AND NOT EXISTS (
          SELECT 1 FROM receiver_queue rqg
          WHERE rqg.user_id = u.id
-           AND rqg.arrives_at > NOW() - INTERVAL '${ARRIVAL_GAP_MIN} minutes'
+           AND rqg.arrives_at BETWEEN NOW() - INTERVAL '${ARRIVAL_GAP_MIN} minutes'
+                                  AND NOW() + INTERVAL '${ARRIVAL_GAP_MIN} minutes'
        )
+       -- teto do dia: o que passar disso vai para o oceano de reserva
+       AND (SELECT COUNT(*) FROM receiver_queue rqd
+            WHERE rqd.user_id = u.id
+              AND rqd.arrives_at > NOW() - INTERVAL '24 hours') < ${DAILY_TARGET_HUMAN}
      ORDER BY
        (SELECT COALESCE(MAX(arrives_at), TIMESTAMPTZ 'epoch')
         FROM receiver_queue WHERE user_id = u.id) ASC,

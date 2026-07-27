@@ -8,6 +8,7 @@ import { userRoutes } from './routes/users.js';
 import { adminRoutes } from './routes/admin.js';
 import { demoRoutes } from './routes/demo.js';
 import { startScheduler } from './services/scheduler.js';
+import { pool } from './db/pool.js';
 import { ensureBots } from './services/bots.js';
 
 const app = Fastify({ logger: true, trustProxy: true });
@@ -25,6 +26,28 @@ app.addHook('preHandler', async (req) => {
       // unauthenticated — routes enforce auth individually
     }
   }
+});
+
+/**
+ * Presença. `last_active_at` decide quem está elegível a receber barcos
+ * (services/routing.ts), mas era escrito SÓ no login — e o token não expira,
+ * então ninguém faz login duas vezes. Na prática a coluna media "quando essa
+ * pessoa se cadastrou", e todo mundo era excluído do sorteio depois de 7 dias
+ * de app aberto normalmente. Qualquer requisição autenticada agora conta como
+ * presença.
+ *
+ * O WHERE segura a escrita: só grava se o registro já está velho, então é no
+ * máximo uma escrita a cada 5 min por pessoa, por mais que o app consulte. E
+ * vai sem await — presença não pode custar latência a ninguém.
+ */
+app.addHook('preHandler', async (req) => {
+  const userId = (req as any).user?.id;
+  if (!userId) return;
+  void pool.query(
+    `UPDATE users SET last_active_at = NOW()
+     WHERE id = $1 AND last_active_at < NOW() - INTERVAL '5 minutes'`,
+    [userId],
+  ).catch(() => {});
 });
 
 // Routes

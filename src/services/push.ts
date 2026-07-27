@@ -60,6 +60,23 @@ export function boatComingMessage(): { title: string; body: string } {
   };
 }
 
+/**
+ * Convite para quem sumiu. Não promete barco nenhum de propósito: se
+ * prometesse, teria de reservar um, e ele ficaria parado horas caso a pessoa
+ * não voltasse (ver services/reengage.ts).
+ */
+export function comeBackMessage(): { title: string; body: string } {
+  const opcoes = [
+    { title: '🌊 O mar andou movimentado',
+      body:  'Faz um tempo que você não aparece. Tem barco cruzando o horizonte agora mesmo.' },
+    { title: '⛵ Seu porto está aberto',
+      body:  'Ninguém atraca num porto fechado. Passe por aqui e deixe um barco te encontrar.' },
+    { title: '🧭 O oceano continua aí',
+      body:  'Enquanto você esteve fora, barcos seguiram viagem. Volte para pegar o próximo.' },
+  ];
+  return opcoes[Math.floor(Math.random() * opcoes.length)];
+}
+
 /** Mensagem padrão de barco chegando, com o prazo real da fila. */
 export function boatArrivedMessage(): { title: string; body: string } {
   const mins = config.boat.queueTimeoutMinutes;
