@@ -3,6 +3,7 @@ import { pool } from '../db/pool.js';
 import { getAchievementsForUser } from '../services/achievements.js';
 import { getGiftsForUser, giftInfo } from '../services/gifts.js';
 import { liveStateFrom, departsInSeconds } from '../services/live.js';
+import { horizonFor } from '../services/horizon.js';
 import { MIN_COUNTRIES_TO_RETURN, REASON_LABEL, ArchiveReason } from '../services/journey.js';
 
 export async function userRoutes(app: FastifyInstance) {
@@ -252,6 +253,19 @@ export async function userRoutes(app: FastifyInstance) {
       }
 
       return reply.send({ boat, incoming });
+    },
+  );
+
+  // ── GET /users/me/horizon ──────────────────────────────────────────────────
+  // Os barcos que estão no mar agora, vistos do convés de quem pergunta:
+  // distância e marcação, nada mais (ver services/horizon.ts).
+  app.get(
+    '/users/me/horizon',
+    {},
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+      return reply.send(await horizonFor(userId));
     },
   );
 
