@@ -161,6 +161,43 @@ function bearing(aLat: number, aLon: number, bLat: number, bLon: number): number
   return (Math.atan2(y, x) / RAD + 360) % 360;
 }
 
+/**
+ * Para onde a tela olha, em graus de bússola — a média circular dos rumos
+ * daqui para todos os países ativos. Ou seja: a direção em que está o resto do
+ * mundo, vista deste ponto.
+ *
+ * Não é o norte de propósito. Com o norte no centro o panorama fica torto para
+ * quase todo mundo, porque a metade vazia da tela é o lado de TERRA: do Brasil
+ * o tráfego todo cai à direita (x médio 0,59), do Japão à esquerda (0,41), da
+ * Islândia à direita (0,67). Girando, todos ficam perto de 0,50.
+ *
+ * Girar não custa honestidade: não há bússola nessa tela, então ninguém pode
+ * perceber onde fica o norte, e a ordem relativa continua verdadeira — mais à
+ * direita ainda é mais no sentido horário.
+ */
+const PLACES_CACHE_MS = 10 * 60_000;
+let places: { at: number; rows: { lat: number; lon: number }[] } | null = null;
+
+async function activePlaces() {
+  if (places && Date.now() - places.at < PLACES_CACHE_MS) return places.rows;
+  const { rows } = await pool.query(
+    `SELECT lat, lon FROM countries WHERE active AND lat IS NOT NULL`,
+  );
+  places = { at: Date.now(), rows: rows.map(r => ({ lat: Number(r.lat), lon: Number(r.lon) })) };
+  return places.rows;
+}
+
+async function facingFrom(lat: number, lon: number): Promise<number> {
+  let sx = 0, sy = 0;
+  for (const p of await activePlaces()) {
+    // o próprio país não aponta para lugar nenhum
+    if (Math.abs(p.lat - lat) < 0.01 && Math.abs(p.lon - lon) < 0.01) continue;
+    const b = bearing(lat, lon, p.lat, p.lon) * RAD;
+    sx += Math.cos(b); sy += Math.sin(b);
+  }
+  return sx === 0 && sy === 0 ? 0 : (Math.atan2(sy, sx) / RAD + 360) % 360;
+}
+
 /** Diferença de rumo no caminho curto: −180..180. */
 function turn(from: number, to: number): number {
   return ((to - from + 540) % 360) - 180;
@@ -171,13 +208,18 @@ export interface Sighting {
   nm: number;
   /** Quanto essa distância muda por minuto (negativo = vindo para cá). */
   nmPerMin: number;
-  /** Marcação em graus de bússola: 0 = norte, 90 = leste. */
+  /**
+   * Marcação JÁ RELATIVA ao centro do panorama, de −180 a 180 — é o ângulo
+   * que a tela usa direto para achar o x. O centro não é o norte (ver
+   * facingFrom), e o valor de bússola cru não sai daqui porque a tela não
+   * teria o que fazer com ele.
+   */
   bearing: number;
   /** Quanto a marcação anda por minuto — o barco cruzando o horizonte. */
   bearingPerMin: number;
 }
 
-function sight(leg: Leg, lat: number, lon: number, atMs: number): Sighting {
+function sight(leg: Leg, lat: number, lon: number, atMs: number, center: number): Sighting {
   const now  = positionAt(leg, atMs);
   const soon = positionAt(leg, atMs + LOOKAHEAD_MIN * 60_000);
   const nm   = nauticalMiles(lat, lon, now.lat,  now.lon);
@@ -187,7 +229,8 @@ function sight(leg: Leg, lat: number, lon: number, atMs: number): Sighting {
   return {
     nm:            Math.round(nm),
     nmPerMin:      Math.round((nm2 - nm) / LOOKAHEAD_MIN * 10) / 10,
-    bearing:       Math.round(br * 10) / 10,
+    // já girada para o centro da tela; a velocidade angular não muda com o giro
+    bearing:       Math.round(relative(br - center) * 10) / 10,
     bearingPerMin: Math.round(turn(br, br2) / LOOKAHEAD_MIN * 100) / 100,
   };
 }
@@ -197,6 +240,8 @@ export interface HorizonView {
   at: number;
   rangeNm: number;
   panoramaDeg: number;
+  /** Rumo de bússola para onde o centro da tela aponta (ver facingFrom). */
+  panoramaCenterDeg: number;
   /** Barcos alheios à vista, do mais longe para o mais perto. */
   boats: Sighting[];
   /** O barco que vem para quem perguntou (se houver um a caminho). */
@@ -235,10 +280,14 @@ export async function horizonFor(userId: string): Promise<HorizonView> {
     [userId],
   );
   if (me[0]?.lat == null) {
-    return { at, rangeNm: RANGE_NM, panoramaDeg: PANORAMA_DEG, boats: [], mine: null };
+    return {
+      at, rangeNm: RANGE_NM, panoramaDeg: PANORAMA_DEG,
+      panoramaCenterDeg: 0, boats: [], mine: null,
+    };
   }
 
   const lat = Number(me[0].lat), lon = Number(me[0].lon);
+  const center = await facingFrom(lat, lon);   // para onde a tela olha daqui
   const legs = await inFlightLegs();
 
   // o barco que vem para mim tem tratamento próprio na tela: sai da paisagem
@@ -249,7 +298,7 @@ export async function horizonFor(userId: string): Promise<HorizonView> {
   const boats = spaced(
     legs
       .filter(l => l.userId !== userId)
-      .map(l => sight(l, lat, lon, at))
+      .map(l => sight(l, lat, lon, at, center))
       .filter(s => s.nm <= RANGE_NM && Math.abs(relative(s.bearing)) <= PANORAMA_DEG / 2),
   )
     // o mais longe primeiro: é a ordem em que a tela pinta, quem está na
@@ -260,10 +309,12 @@ export async function horizonFor(userId: string): Promise<HorizonView> {
     at,
     rangeNm: RANGE_NM,
     panoramaDeg: PANORAMA_DEG,
+    // só informativo: a tela usa as marcações já giradas
+    panoramaCenterDeg: Math.round(center),
     boats,
     mine: mineLeg
       ? {
-          ...sight(mineLeg, lat, lon, at),
+          ...sight(mineLeg, lat, lon, at, center),
           secondsUntil: Math.max(0, Math.round((mineLeg.arrivesMs - at) / 1000)),
         }
       : null,
