@@ -256,6 +256,42 @@ export async function userRoutes(app: FastifyInstance) {
     },
   );
 
+  // ── GET /stats ─────────────────────────────────────────────────────────────
+  // Números da porta de entrada. Públicos e REAIS — a página inicial não
+  // inventa comunidade. Cache de 5 min: são contagens caras e que mudam devagar.
+  let statsCache: { at: number; data: any } | null = null;
+  app.get('/stats', {}, async (_req, reply) => {
+    if (statsCache && Date.now() - statsCache.at < 5 * 60_000) {
+      return reply.send(statsCache.data);
+    }
+    const [msgs, countries, boats, miles] = await Promise.all([
+      pool.query(`SELECT COUNT(*) c FROM boat_messages`),
+      pool.query(`SELECT COUNT(DISTINCT country_code) c FROM boat_countries`),
+      pool.query(`SELECT COUNT(*) c FROM boats WHERE status = 'active'`),
+      // soma das pernas de cada viagem, porto a porto
+      pool.query(`
+        WITH pares AS (
+          SELECT h.boat_id, c.lat, c.lon,
+                 LAG(c.lat) OVER (PARTITION BY h.boat_id ORDER BY h.hopped_at) plat,
+                 LAG(c.lon) OVER (PARTITION BY h.boat_id ORDER BY h.hopped_at) plon
+          FROM boat_hops h JOIN countries c ON c.code = h.country_code
+          WHERE c.lat IS NOT NULL)
+        SELECT COALESCE(ROUND(SUM(2 * 6371 * ASIN(SQRT(
+                 POWER(SIN(RADIANS(lat - plat) / 2), 2) +
+                 COS(RADIANS(plat)) * COS(RADIANS(lat)) *
+                 POWER(SIN(RADIANS(lon - plon) / 2), 2)))) / 1.852), 0) c
+        FROM pares WHERE plat IS NOT NULL`),
+    ]);
+    const data = {
+      messages:      Number(msgs.rows[0].c),
+      countries:     Number(countries.rows[0].c),
+      boatsAtSea:    Number(boats.rows[0].c),
+      nauticalMiles: Number(miles.rows[0].c),
+    };
+    statsCache = { at: Date.now(), data };
+    return reply.send(data);
+  });
+
   // ── GET /countries ─────────────────────────────────────────────────────────
   // Lista para o seletor de país. Só os ativos: o admin desliga países onde o
   // app não deve operar, e eles não podem aparecer como opção.
