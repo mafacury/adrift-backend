@@ -18,8 +18,8 @@
  */
 import { pool } from '../db/pool.js';
 
-/** Alcance do avistamento, em milhas náuticas. */
-export const RANGE_NM = 8000;
+/** Alcance do avistamento, em milhas náuticas — o limite da vista. */
+export const RANGE_NM = 10000;
 /** Daqui para dentro o barco não é mais paisagem: está atracando. */
 export const DOCK_NM = 10;
 
