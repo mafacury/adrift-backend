@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { pool } from '../db/pool.js';
-import { getAchievementsForUser } from '../services/achievements.js';
+import { getAchievementsForUser, pendingAchievements, markAchievementsSeen } from '../services/achievements.js';
 import { getGiftsForUser, giftInfo } from '../services/gifts.js';
 import { liveStateFrom, departsInSeconds } from '../services/live.js';
 import { horizonFor } from '../services/horizon.js';
@@ -16,6 +16,33 @@ export async function userRoutes(app: FastifyInstance) {
       if (!userId) return reply.code(401).send({ error: 'unauthorized' });
       const data = await getAchievementsForUser(userId);
       return reply.send(data);
+    },
+  );
+
+  // ── Conquistas pendentes de comemoração ────────────────────────────────────
+  app.get('/users/me/achievements/pending', {}, async (req, reply) => {
+    const userId = (req as any).user?.id;
+    if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+    const pend = await pendingAchievements(userId);
+    return reply.send({
+      pending: pend.map(a => ({
+        id: a.id, title: a.title, description: a.description,
+        tier: a.tier, icon: a.icon,
+        gift: giftInfo(a.gift ?? null),
+      })),
+    });
+  });
+
+  app.post<{ Body: { ids: string[] } }>(
+    '/users/me/achievements/ack',
+    { schema: { body: { type: 'object', required: ['ids'], properties: {
+      ids: { type: 'array', items: { type: 'string', maxLength: 40 }, maxItems: 40 },
+    } } } },
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+      await markAchievementsSeen(userId, req.body.ids);
+      return reply.send({ ok: true });
     },
   );
 

@@ -94,6 +94,47 @@ export async function getAchievementsForUser(userId: string): Promise<{
   };
 }
 
+/**
+ * Conquistas cumpridas que ainda não foram comemoradas.
+ *
+ * O catálogo é calculado das métricas, então não existe "acabou de cumprir" —
+ * o que existe é a diferença entre o que está cumprido e o que a pessoa já viu
+ * (tabela achievements_seen, migração 017).
+ *
+ * Na PRIMEIRA vez que alguém chega aqui, tudo que já estava cumprido é
+ * carimbado como visto e não devolve nada. Sem isso, quem já joga há semanas
+ * levaria cinco comemorações na cara de uma vez — e a primeira coisa que a
+ * comemoração precisa ser é rara.
+ */
+export async function pendingAchievements(userId: string): Promise<Achievement[]> {
+  const m = await computeMetrics(userId);
+  const earned = ACHIEVEMENTS.filter(a => m[a.metric] >= a.target);
+  if (earned.length === 0) return [];
+
+  const { rows: seen } = await pool.query(
+    `SELECT achievement_id FROM achievements_seen WHERE user_id = $1`, [userId],
+  );
+
+  // primeira visita: assenta a régua no que já existe e não comemora nada
+  if (seen.length === 0) {
+    await markAchievementsSeen(userId, earned.map(a => a.id));
+    return [];
+  }
+
+  const jaViu = new Set(seen.map(r => r.achievement_id));
+  return earned.filter(a => !jaViu.has(a.id));
+}
+
+export async function markAchievementsSeen(userId: string, ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await pool.query(
+    `INSERT INTO achievements_seen (user_id, achievement_id)
+     SELECT $1, UNNEST($2::text[])
+     ON CONFLICT DO NOTHING`,
+    [userId, ids],
+  );
+}
+
 /** IDs das conquistas já cumpridas — usado pelo Meu Baú (Etapa 2). */
 export async function earnedAchievementIds(userId: string): Promise<string[]> {
   const m = await computeMetrics(userId);
