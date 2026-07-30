@@ -9,6 +9,7 @@ import { STAGE_CASE_SQL } from '../services/progress.js';
 import { startReturn, MIN_COUNTRIES_TO_RETURN } from '../services/journey.js';
 import { sendPushToUser, boatGiftMessage } from '../services/push.js';
 import { config } from '../config/index.js';
+import { traduzirMensagens } from '../services/translate.js';
 
 interface CreateBoatBody {
   content: string;
@@ -188,6 +189,42 @@ export async function boatRoutes(app: FastifyInstance) {
         await pool.query('ROLLBACK');
         throw err;
       }
+    },
+  );
+
+  // ── POST /boats/:id/translate ──────────────────────────────────────────────
+  // Traduz as mensagens do barco para o português. Só a pedido: as mensagens
+  // chegam em japonês, italiano, suaíli, e quem recebe quer entender antes de
+  // responder — mas o original é a mensagem, e ele nunca é substituído sem que
+  // a pessoa peça.
+  app.post<{ Params: { id: string } }>(
+    '/boats/:id/translate',
+    {},
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+
+      // só quem tem (ou teve) este barco nas mãos pode pedir a tradução dele —
+      // senão bastaria adivinhar um id para ler o barco de outra pessoa
+      const { rows: pode } = await pool.query(
+        `SELECT 1 FROM receiver_queue
+          WHERE boat_id = $1 AND user_id = $2
+          LIMIT 1`,
+        [req.params.id, userId],
+      );
+      if (pode.length === 0) return reply.code(404).send({ error: 'not_found' });
+
+      // MESMA ordem da fila (created_at DESC): é o índice que liga cada
+      // tradução à mensagem na tela
+      const { rows: msgs } = await pool.query(
+        `SELECT content FROM boat_messages
+          WHERE boat_id = $1
+          ORDER BY created_at DESC`,
+        [req.params.id],
+      );
+
+      const traducoes = await traduzirMensagens(msgs.map(m => m.content as string));
+      return reply.send({ translations: traducoes });
     },
   );
 
