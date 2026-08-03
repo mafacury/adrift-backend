@@ -21,8 +21,15 @@ const client = new Anthropic({ apiKey: config.anthropicApiKey });
 const LOTE = 25;
 
 export interface Traducao {
-  /** Posição na lista de mensagens do barco (mesma ordem da fila). */
-  i: number;
+  /**
+   * O texto ORIGINAL, que é a chave de busca no app.
+   *
+   * Já foi a posição na lista, e isso quebrava: a Jornada e o Mapa montam a
+   * lista de mensagens por caminhos diferentes (uma vem da fila, a outra dos
+   * pulos do barco), então a mesma mensagem podia cair em índices distintos.
+   * Pelo texto, cada tela acha a sua tradução sem depender de ordem.
+   */
+  original: string;
   texto: string;
   /** Idioma detectado no original, em português ("japonês"). */
   origem: string;
@@ -98,9 +105,10 @@ async function traduzirLote(
   const dados = JSON.parse(bloco.text) as {
     traducoes: { i: number; pt: string; origem: string }[];
   };
-  return (dados.traducoes ?? []).map(t => ({
-    i: t.i, texto: t.pt, origem: t.origem,
-  }));
+  return (dados.traducoes ?? []).flatMap(t => {
+    const item = itens.find(x => x.i === t.i);
+    return item ? [{ original: item.texto, texto: t.pt, origem: t.origem }] : [];
+  });
 }
 
 /**
@@ -130,10 +138,12 @@ export async function traduzirMensagens(
   const saida: Traducao[] = [];
   const faltando: { i: number; texto: string }[] = [];
 
+  const jaPedido = new Set<string>();
   textos.forEach((texto, i) => {
     const achou = cache.get(hashes[i]);
-    if (achou) saida.push({ i, texto: achou.texto, origem: achou.origem });
-    else if (texto.trim()) faltando.push({ i, texto });
+    if (achou) { saida.push({ original: texto, texto: achou.texto, origem: achou.origem }); return; }
+    // a mesma frase pode aparecer duas vezes: traduz uma só
+    if (texto.trim() && !jaPedido.has(hashes[i])) { jaPedido.add(hashes[i]); faltando.push({ i, texto }); }
   });
 
   for (let p = 0; p < faltando.length; p += LOTE) {
@@ -150,16 +160,14 @@ export async function traduzirMensagens(
 
     // grava no dicionário para quem vier depois
     for (const t of novas) {
-      const original = textos[t.i];
-      if (original === undefined) continue;
       await pool.query(
         `INSERT INTO message_translations (content_hash, lang, translated, source_lang)
          VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
-        [hash(original), lang, t.texto, t.origem],
+        [hash(t.original), lang, t.texto, t.origem],
       );
     }
     saida.push(...novas);
   }
 
-  return saida.sort((a, b) => a.i - b.i);
+  return saida;
 }

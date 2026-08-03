@@ -204,12 +204,19 @@ export async function boatRoutes(app: FastifyInstance) {
       const userId = (req as any).user?.id;
       if (!userId) return reply.code(401).send({ error: 'unauthorized' });
 
-      // só quem tem (ou teve) este barco nas mãos pode pedir a tradução dele —
-      // senão bastaria adivinhar um id para ler o barco de outra pessoa
+      // Só quem tem alguma ligação com este barco pode pedir a tradução dele —
+      // senão bastaria adivinhar um id para ler o barco de outra pessoa.
+      // São três os vínculos legítimos, e o primeiro é o mais óbvio de esquecer:
+      // o DONO não tem linha na fila de recebimento do próprio barco, então a
+      // versão anterior recusava traduzir o barco de quem o lançou.
       const { rows: pode } = await pool.query(
-        `SELECT 1 FROM receiver_queue
-          WHERE boat_id = $1 AND user_id = $2
-          LIMIT 1`,
+        `SELECT 1 WHERE
+           EXISTS (SELECT 1 FROM boats
+                    WHERE id = $1 AND creator_user_id = $2)
+           OR EXISTS (SELECT 1 FROM receiver_queue
+                       WHERE boat_id = $1 AND user_id = $2)
+           OR EXISTS (SELECT 1 FROM boat_messages
+                       WHERE boat_id = $1 AND user_id = $2)`,
         [req.params.id, userId],
       );
       if (pode.length === 0) return reply.code(404).send({ error: 'not_found' });
