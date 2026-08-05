@@ -79,6 +79,15 @@ export const GIFTS: Record<string, Gift> = {
   bussola:       { id: 'bussola',       name: 'Bússola antiga',     emoji: '🧭', weight: 600,  source: 'achievement' },
   ancora_ouro:   { id: 'ancora_ouro',   name: 'Âncora de ouro',     emoji: '⚓', weight: 650,  source: 'achievement' },
   coroa_ouro:    { id: 'coroa_ouro',    name: 'Coroa de ouro',      emoji: '🥇', weight: 1000, source: 'achievement' },
+  // Acrescentados com a escada nova de conquistas — pesos seguem a mesma regua
+  concha:        { id: 'concha',        name: 'Concha do primeiro porto', emoji: '🐚', weight: 30,   source: 'achievement' },
+  garrafa:       { id: 'garrafa',       name: 'Garrafa lacrada',    emoji: '🫙', weight: 45,   source: 'achievement' },
+  moeda:         { id: 'moeda',         name: 'Moeda de porto',     emoji: '🪙', weight: 60,   source: 'achievement' },
+  vela_cera:     { id: 'vela_cera',     name: 'Vela de cera',       emoji: '🕯️', weight: 80,   source: 'achievement' },
+  mapa_velho:    { id: 'mapa_velho',    name: 'Mapa rabiscado',     emoji: '🗺️', weight: 140,  source: 'achievement' },
+  timao:         { id: 'timao',         name: 'Timão',              emoji: '🛞', weight: 260,  source: 'achievement' },
+  catalejo:      { id: 'catalejo',      name: 'Catalejo',           emoji: '🔭', weight: 420,  source: 'achievement' },
+  estrela:       { id: 'estrela',       name: 'Estrela do norte',   emoji: '⭐', weight: 800,  source: 'achievement' },
 };
 
 const WELCOME_GIFTS = ['amuleto', 'lanterna'];
