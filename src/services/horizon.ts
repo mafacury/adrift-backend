@@ -44,6 +44,8 @@ interface Leg {
   dLat: number; dLon: number;
   startedMs: number;
   arrivesMs: number;
+  /** Modelo do barco (1 a 8) — é o que a tela desenha no horizonte. */
+  stage: number;
 }
 
 let cache: { at: number; legs: Leg[] } | null = null;
@@ -59,6 +61,7 @@ async function inFlightLegs(): Promise<Leg[]> {
   const { rows } = await pool.query(
     `SELECT
        rq.user_id,
+       b.stage,
        EXTRACT(EPOCH FROM rq.queued_at)  * 1000 AS started_ms,
        EXTRACT(EPOCH FROM rq.arrives_at) * 1000 AS arrives_ms,
        COALESCE(oh.lat, om.lat) AS o_lat,
@@ -67,6 +70,7 @@ async function inFlightLegs(): Promise<Leg[]> {
        d.lon AS d_lon
      FROM receiver_queue rq
      JOIN users ru ON ru.id = rq.user_id
+     JOIN boats b  ON b.id  = rq.boat_id
      LEFT JOIN countries d ON d.code = COALESCE(rq.dest_country, ru.country_code)
      -- porto de partida: o último pulo antes de zarpar
      LEFT JOIN LATERAL (
@@ -97,6 +101,7 @@ async function inFlightLegs(): Promise<Leg[]> {
       dLat:      Number(r.d_lat),  dLon: Number(r.d_lon),
       startedMs: Number(r.started_ms),
       arrivesMs: Number(r.arrives_ms),
+      stage:     Number(r.stage) || 1,
     }));
 
   cache = { at: Date.now(), legs };
@@ -204,6 +209,15 @@ function turn(from: number, to: number): number {
 }
 
 export interface Sighting {
+  /**
+   * Modelo do barco, de 1 a 8.
+   *
+   * É a única coisa que sai daqui além de distância e marcação, e sai porque
+   * muda a tela: ver uma Nau Lendária cruzando o horizonte é diferente de ver
+   * uma Novata. Não identifica ninguém — é uma faixa larga, derivada de quantas
+   * mensagens aquele barco juntou, e não se liga a pessoa, país ou id.
+   */
+  stage: number;
   /** Distância agora, em milhas náuticas. */
   nm: number;
   /** Quanto essa distância muda por minuto (negativo = vindo para cá). */
@@ -227,6 +241,7 @@ function sight(leg: Leg, lat: number, lon: number, atMs: number, center: number)
   const br   = bearing(lat, lon, now.lat,  now.lon);
   const br2  = bearing(lat, lon, soon.lat, soon.lon);
   return {
+    stage:         leg.stage,
     nm:            Math.round(nm),
     nmPerMin:      Math.round((nm2 - nm) / LOOKAHEAD_MIN * 10) / 10,
     // já girada para o centro da tela; a velocidade angular não muda com o giro
