@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { pool } from '../db/pool.js';
 import { processModeration, processRouting } from '../services/process.js';
 import { countryFromIp } from '../services/geo.js';
-import { userOwnsGift, giftInfo } from '../services/gifts.js';
+import { userOwnsGift, giftInfo, consumeGift } from '../services/gifts.js';
 import { liveStateFrom } from '../services/live.js';
 import { greatCirclePoint, legProgress } from '../services/horizon.js';
 import { STAGE_CASE_SQL } from '../services/progress.js';
@@ -39,6 +39,8 @@ export async function boatRoutes(app: FastifyInstance) {
 
       // valida o presente (se houver) — só o que o usuário destravou
       const gift = giftId && (await userOwnsGift(userId, giftId)) ? giftId : null;
+      // sai do bau agora: presente que nao gasta nada nao vale nada
+      if (gift) await consumeGift(userId, gift);
 
       // Create boat + first message in one transaction
       const { rows } = await pool.query('BEGIN; SELECT 1');
@@ -92,6 +94,7 @@ export async function boatRoutes(app: FastifyInstance) {
 
       // presente só é anexado a uma mensagem — e só se o usuário o tiver
       const gift = content && giftId && (await userOwnsGift(userId, giftId)) ? giftId : null;
+      if (gift) await consumeGift(userId, gift);
 
       // Verify the boat exists and is active, and this user has a pending queue entry
       const { rows: queueRows } = await pool.query(
