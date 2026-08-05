@@ -46,6 +46,12 @@ interface Leg {
   arrivesMs: number;
   /** Modelo do barco (1 a 8) — é o que a tela desenha no horizonte. */
   stage: number;
+  /** Quantas mensagens ele carrega. */
+  messages: number;
+  /** Por quantos países já passou. */
+  countries: number;
+  /** Há quantos dias está no mar. */
+  days: number;
 }
 
 let cache: { at: number; legs: Leg[] } | null = null;
@@ -62,6 +68,9 @@ async function inFlightLegs(): Promise<Leg[]> {
     `SELECT
        rq.user_id,
        b.stage,
+       b.unique_countries,
+       EXTRACT(DAY FROM NOW() - b.created_at)::int AS days,
+       (SELECT COUNT(*)::int FROM boat_messages WHERE boat_id = b.id) AS messages,
        EXTRACT(EPOCH FROM rq.queued_at)  * 1000 AS started_ms,
        EXTRACT(EPOCH FROM rq.arrives_at) * 1000 AS arrives_ms,
        COALESCE(oh.lat, om.lat) AS o_lat,
@@ -102,6 +111,9 @@ async function inFlightLegs(): Promise<Leg[]> {
       startedMs: Number(r.started_ms),
       arrivesMs: Number(r.arrives_ms),
       stage:     Number(r.stage) || 1,
+      messages:  Number(r.messages) || 0,
+      countries: Number(r.unique_countries) || 0,
+      days:      Math.max(Number(r.days) || 0, 0),
     }));
 
   cache = { at: Date.now(), legs };
@@ -218,6 +230,17 @@ export interface Sighting {
    * mensagens aquele barco juntou, e não se liga a pessoa, país ou id.
    */
   stage: number;
+  /**
+   * A ficha do barco, para quem pousar o cursor sobre ele.
+   *
+   * São NÚMEROS, nunca lugares. A origem continua fora daqui de propósito:
+   * com poucos usuários, país é quase pessoa, e distância + marcação + origem,
+   * colhidas em duas consultas, dizem de onde alguém está escrevendo. Fora que
+   * não saber de onde vem é metade da graça de o barco chegar.
+   */
+  messages: number;
+  countries: number;
+  days: number;
   /** Distância agora, em milhas náuticas. */
   nm: number;
   /** Quanto essa distância muda por minuto (negativo = vindo para cá). */
@@ -242,6 +265,9 @@ function sight(leg: Leg, lat: number, lon: number, atMs: number, center: number)
   const br2  = bearing(lat, lon, soon.lat, soon.lon);
   return {
     stage:         leg.stage,
+    messages:      leg.messages,
+    countries:     leg.countries,
+    days:          leg.days,
     nm:            Math.round(nm),
     nmPerMin:      Math.round((nm2 - nm) / LOOKAHEAD_MIN * 10) / 10,
     // já girada para o centro da tela; a velocidade angular não muda com o giro
