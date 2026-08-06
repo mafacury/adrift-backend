@@ -240,7 +240,7 @@ export async function adminRoutes(app: FastifyInstance) {
   // ── GET /admin/settings ────────────────────────────────────────────────────
   app.get('/admin/settings', async (_req, reply) => {
     const { rows } = await pool.query(
-      'SELECT key, value, label, updated_at FROM system_settings ORDER BY key',
+      'SELECT key, value, label, kind, help, updated_at FROM system_settings ORDER BY kind, key',
     );
     return reply.send({ settings: rows });
   });
@@ -255,7 +255,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
       const { rows } = await pool.query(
         `UPDATE system_settings SET value = $1, updated_at = NOW()
-         WHERE key = $2 RETURNING key, value, label, updated_at`,
+         WHERE key = $2 RETURNING key, value, label, kind, help, updated_at`,
         [value, key],
       );
       if (!rows.length) return reply.code(404).send({ error: 'configuração não encontrada' });

@@ -6,6 +6,8 @@ import { liveStateFrom, departsInSeconds } from '../services/live.js';
 import { horizonFor } from '../services/horizon.js';
 import { MIN_COUNTRIES_TO_RETURN, REASON_LABEL, ArchiveReason } from '../services/journey.js';
 
+let cacheTextos: { at: number; mapa: Record<string, string> } | null = null;
+
 export async function userRoutes(app: FastifyInstance) {
   // ── GET /users/me/achievements ─────────────────────────────────────────────
   app.get(
@@ -18,6 +20,25 @@ export async function userRoutes(app: FastifyInstance) {
       return reply.send(data);
     },
   );
+
+  // ── GET /settings/text ─────────────────────────────────────────────────────
+  // Os textos que o dono edita no painel e o app mostra. Só os de TEXTO: os
+  // números são regra de funcionamento e não têm por que sair daqui.
+  //
+  // Cache curto no servidor porque toda abertura do Pier passa por aqui, e o
+  // texto muda uma vez por mês, não uma vez por segundo.
+  app.get('/settings/text', {}, async (_req, reply) => {
+    const agora = Date.now();
+    if (!cacheTextos || agora - cacheTextos.at > 60_000) {
+      const { rows } = await pool.query(
+        `SELECT key, value FROM system_settings WHERE kind = 'text'`,
+      );
+      const mapa: Record<string, string> = {};
+      for (const r of rows) mapa[r.key] = r.value;
+      cacheTextos = { at: agora, mapa };
+    }
+    return reply.send(cacheTextos.mapa);
+  });
 
   // ── Conquistas pendentes de comemoração ────────────────────────────────────
   app.get('/users/me/achievements/pending', {}, async (req, reply) => {
