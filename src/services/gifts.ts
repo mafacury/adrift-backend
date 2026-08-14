@@ -10,6 +10,20 @@ import { ACHIEVEMENTS, earnedAchievementIds } from './achievements.js';
  * admin, as conquistas terão faixas de peso e liberarão a faixa inteira.
  *
  * Os emojis são PLACEHOLDERS — o designer troca por ilustrações depois.
+ *
+ * REGRA PARA ESCOLHER EMOJI, enquanto forem placeholders:
+ *
+ * 1. Nada acima do Unicode 12. Cinco presentes nasceram com emoji de Unicode
+ *    13 e 14 (🫧 pérola, 🪢 nó, 🫙 garrafa, 🪙 moeda, 🛞 timão) e apareciam como
+ *    QUADRADO VAZIO — a fonte do sistema não tem esses desenhos, e não adianta
+ *    o código estar certo. Windows 10 e Android antigo param no Unicode 12.
+ * 2. Nenhum repetido. Búzio e Concha usavam os dois o mesmo 🐚: dois prêmios
+ *    diferentes com a mesma cara não parecem dois prêmios.
+ * 3. Nada de símbolo religioso de enfeite. O timão pedia ☸️, que é a roda do
+ *    dharma; ficou ⚙️, pior de significado e melhor de respeito.
+ *
+ * Para conferir antes de commitar: a fonte do sistema é que manda, não a tabela
+ * do Unicode. No Windows dá para ler os codepoints de C:/Windows/Fonts/seguiemj.ttf.
  */
 
 export type GiftSource = 'welcome' | 'achievement';
@@ -69,9 +83,9 @@ export const GIFTS: Record<string, Gift> = {
 
   // De conquista — peso cresce com a dificuldade
   flor:          { id: 'flor',          name: 'Flor',               emoji: '🌷', weight: 40,   source: 'achievement' },
-  perola:        { id: 'perola',        name: 'Pérola',             emoji: '🫧', weight: 50,   source: 'achievement' },
+  perola:        { id: 'perola',        name: 'Pérola',             emoji: '⚪', weight: 50,   source: 'achievement' },
   buzio:         { id: 'buzio',         name: 'Búzio',              emoji: '🐚', weight: 100,  source: 'achievement' },
-  no_marinheiro: { id: 'no_marinheiro', name: 'Nó de marinheiro',   emoji: '🪢', weight: 120,  source: 'achievement' },
+  no_marinheiro: { id: 'no_marinheiro', name: 'Nó de marinheiro',   emoji: '➰', weight: 120,  source: 'achievement' },
   bracelete:     { id: 'bracelete',     name: 'Bracelete',          emoji: '📿', weight: 150,  source: 'achievement' },
   escudo:        { id: 'escudo',        name: 'Escudo do guardião', emoji: '🛡️', weight: 300,  source: 'achievement' },
   sino:          { id: 'sino',          name: 'Sino do mundo',      emoji: '🔔', weight: 320,  source: 'achievement' },
@@ -80,12 +94,12 @@ export const GIFTS: Record<string, Gift> = {
   ancora_ouro:   { id: 'ancora_ouro',   name: 'Âncora de ouro',     emoji: '⚓', weight: 650,  source: 'achievement' },
   coroa_ouro:    { id: 'coroa_ouro',    name: 'Coroa de ouro',      emoji: '🥇', weight: 1000, source: 'achievement' },
   // Acrescentados com a escada nova de conquistas — pesos seguem a mesma regua
-  concha:        { id: 'concha',        name: 'Concha do primeiro porto', emoji: '🐚', weight: 30,   source: 'achievement' },
-  garrafa:       { id: 'garrafa',       name: 'Garrafa lacrada',    emoji: '🫙', weight: 45,   source: 'achievement' },
-  moeda:         { id: 'moeda',         name: 'Moeda de porto',     emoji: '🪙', weight: 60,   source: 'achievement' },
+  concha:        { id: 'concha',        name: 'Concha do primeiro porto', emoji: '🦪', weight: 30,   source: 'achievement' },
+  garrafa:       { id: 'garrafa',       name: 'Garrafa lacrada',    emoji: '🏺', weight: 45,   source: 'achievement' },
+  moeda:         { id: 'moeda',         name: 'Moeda de porto',     emoji: '💰', weight: 60,   source: 'achievement' },
   vela_cera:     { id: 'vela_cera',     name: 'Vela de cera',       emoji: '🕯️', weight: 80,   source: 'achievement' },
   mapa_velho:    { id: 'mapa_velho',    name: 'Mapa rabiscado',     emoji: '🗺️', weight: 140,  source: 'achievement' },
-  timao:         { id: 'timao',         name: 'Timão',              emoji: '🛞', weight: 260,  source: 'achievement' },
+  timao:         { id: 'timao',         name: 'Timão',              emoji: '⚙️', weight: 260,  source: 'achievement' },
   catalejo:      { id: 'catalejo',      name: 'Catalejo',           emoji: '🔭', weight: 420,  source: 'achievement' },
   estrela:       { id: 'estrela',       name: 'Estrela do norte',   emoji: '⭐', weight: 800,  source: 'achievement' },
 };

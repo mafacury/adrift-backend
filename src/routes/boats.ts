@@ -489,19 +489,26 @@ export async function boatRoutes(app: FastifyInstance) {
         gift: giftInfo(gift_id ?? null),
       }));
 
-      // Perna em andamento: onde o barco está AGORA e quanto falta. Serve para
-      // o mapa desenhar a travessia se preenchendo em vez de deixar o barco
-      // parado no porto por horas.
+      // Onde o barco está AGORA. Serve para o mapa desenhar a travessia se
+      // preenchendo em vez de deixar o barco parado no porto por horas.
       //
-      // Sai daqui a posição atual e o tempo — NÃO o destino. Quem recebe o
-      // barco continua sendo surpresa: a linha some na bruma adiante do casco.
-      // (O país só se revela quando vira pulo, como sempre foi.)
+      // DURANTE a travessia sai a posição e o relógio, nunca o destino: quem
+      // recebe é surpresa, e a linha some na bruma adiante do casco. Nem a
+      // FRAÇÃO sai — com a partida (que é pública), a posição e a fração, uma
+      // regra de três devolveria o ponto de chegada.
       //
-      // Nem a FRAÇÃO da travessia sai: com a partida (que é pública), a posição
-      // e a fração, uma regra de três devolveria o destino. Só a posição e o
-      // relógio, que é o que a tela precisa.
+      // DEPOIS de atracar, o barco fica no porto de destino, e aí o país sai
+      // sim. Antes ele não saía, e o mapa fazia coisa pior que revelar: sem
+      // posição, o desenho caía no último pulo — o porto de ONDE ELE PARTIU. O
+      // barco voltava várias paradas para trás no instante em que chegava,
+      // ficava lá enquanto alguém escrevia, e só então saltava para o porto
+      // novo. Mostrava um lugar errado para esconder o certo.
+      //
+      // O sigilo que se perde aqui é de minutos: assim que a pessoa devolve o
+      // barco, o pulo aparece com o país — e mesmo quando ela não escreve
+      // nada, o porto entra na lista como "passou sem escrever", com bandeira.
       const lr = liveRows[0];
-      let leg: { lat: number; lon: number; etaSeconds: number } | null = null;
+      let leg: { lat: number; lon: number; etaSeconds: number; atracado?: boolean } | null = null;
       if (lr?.o_lat != null && lr?.d_lat != null && lr?.arrives_at) {
         const startedMs = new Date(lr.queued_at).getTime();
         const arrivesMs = new Date(lr.arrives_at).getTime();
@@ -515,6 +522,14 @@ export async function boatRoutes(app: FastifyInstance) {
             lat: Math.round(p.lat * 100) / 100,
             lon: Math.round(p.lon * 100) / 100,
             etaSeconds: Math.round((arrivesMs - now) / 1000),
+          };
+        } else {
+          // chegou: o casco fica no destino até virar pulo
+          leg = {
+            lat: Math.round(Number(lr.d_lat) * 100) / 100,
+            lon: Math.round(Number(lr.d_lon) * 100) / 100,
+            etaSeconds: 0,
+            atracado: true,
           };
         }
       }
