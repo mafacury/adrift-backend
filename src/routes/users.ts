@@ -5,6 +5,7 @@ import { getGiftsForUser, giftInfo } from '../services/gifts.js';
 import { liveStateFrom, departsInSeconds } from '../services/live.js';
 import { horizonFor } from '../services/horizon.js';
 import { MIN_COUNTRIES_TO_RETURN, REASON_LABEL, ArchiveReason } from '../services/journey.js';
+import { agradecer, fraseValida, recadosDe, marcarRecadosLidos, jaAgradecidos } from '../services/thanks.js';
 
 let cacheTextos: { at: number; mapa: Record<string, string> } | null = null;
 
@@ -179,8 +180,15 @@ export async function userRoutes(app: FastifyInstance) {
       // Selos ao vivo da lista: estado + partida estimada (só bots têm hora).
       // Detalhes internos (is_bot, typing_at, responds_at) não saem da API.
       const boats = rows.map((r) => {
+        // arrives_at PRECISA entrar aqui. Sem ele, liveStateFrom pula o teste
+        // de "ainda em viagem" e nunca devolve 'sailing' para esta lista: um
+        // barco no meio do oceano era anunciado como 'waiting', e — pior —
+        // como 'typing' nos sete minutos antes da resposta marcada, ou seja,
+        // "escrevendo agora" com o barco ainda a horas do porto. A tela de
+        // detalhe acertava porque passa a linha inteira da fila.
         const lq = r.is_bot === null ? undefined
-          : { is_bot: r.is_bot, typing_at: r.typing_at, responds_at: r.responds_at };
+          : { is_bot: r.is_bot, typing_at: r.typing_at,
+              responds_at: r.responds_at, arrives_at: r.arrives_at };
         const { is_bot, typing_at, responds_at, ...boat } = r;
         return {
           ...boat,
@@ -475,6 +483,191 @@ export async function userRoutes(app: FastifyInstance) {
       const userId = (req as any).user?.id;
       if (!userId) return reply.code(401).send({ error: 'unauthorized' });
       await pool.query(`UPDATE users SET gifts_seen_at = NOW() WHERE id = $1`, [userId]);
+      return reply.send({ status: 'ok' });
+    },
+  );
+
+  // ── GET /users/me/celebrations ─────────────────────────────────────────────
+  //
+  // O que ainda merece festa. Dois tipos, na mesma fila, do mais antigo para o
+  // mais novo — a ordem importa: quem abre o app depois de dois dias vê a
+  // história na ordem em que aconteceu, não embaralhada.
+  //
+  //   presente  um estranho deixou um presente num barco meu
+  //   evolucao  um barco meu subiu de nível
+  //
+  // O corte de cada um vem de um rastro diferente: presente é relógio
+  // (users.gifts_seen_at), evolução é nível por barco (boats.stage_seen).
+  app.get(
+    '/users/me/celebrations',
+    {},
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+
+      // ── presentes novos, um por um (não a contagem)
+      const { rows: presentes } = await pool.query(
+        `SELECT bm.id            AS message_id,
+                bm.boat_id,
+                bm.gift_id,
+                bm.country_code,
+                bm.content,
+                bm.created_at,
+                b.stage,
+                LEFT(b.id::text, 5) AS boat_code
+           FROM boat_messages bm
+           JOIN boats b ON b.id = bm.boat_id
+           JOIN users u ON u.id = $1
+          WHERE b.creator_user_id = $1
+            AND bm.gift_id IS NOT NULL
+            AND bm.user_id <> $1
+            AND bm.created_at > u.gifts_seen_at
+          ORDER BY bm.created_at ASC
+          LIMIT 12`,
+        [userId],
+      );
+
+      // o baú do BARCO: tudo que ele já recebeu, para a tela mostrar a coleção
+      // com o recém-chegado em destaque
+      const baus = new Map<string, { id: string; name: string; emoji: string; quantos: number }[]>();
+      for (const p of presentes) {
+        if (baus.has(p.boat_id)) continue;
+        const { rows } = await pool.query(
+          `SELECT gift_id, COUNT(*)::int AS quantos
+             FROM boat_messages
+            WHERE boat_id = $1 AND gift_id IS NOT NULL
+            GROUP BY gift_id
+            ORDER BY COUNT(*) DESC`,
+          [p.boat_id],
+        );
+        baus.set(p.boat_id, rows.map((r) => {
+          const g = giftInfo(r.gift_id);
+          return { id: r.gift_id, name: g?.name ?? r.gift_id, emoji: g?.emoji ?? '🎁', quantos: r.quantos };
+        }));
+      }
+
+      // ── barcos que subiram de nível e ninguém comemorou
+      const { rows: evolucoes } = await pool.query(
+        `SELECT id AS boat_id, LEFT(id::text, 5) AS boat_code,
+                stage, COALESCE(stage_seen, 1) AS stage_seen, initial_message, last_hop_at
+           FROM boats
+          WHERE creator_user_id = $1
+            AND status <> 'archived'
+            AND stage > COALESCE(stage_seen, 1)
+          ORDER BY last_hop_at ASC`,
+        [userId],
+      );
+
+      // Uma comemoração de presente pode reaparecer se o "vi" não chegou ao
+      // servidor. Marcando quais já foram agradecidos, o botão não convida a
+      // repetir o que o banco vai recusar de qualquer forma.
+      const agradecidos = await jaAgradecidos(userId, presentes.map((p) => p.message_id));
+
+      const fila = [
+        ...presentes.map((p) => {
+          const g = giftInfo(p.gift_id);
+          return {
+            tipo: 'presente' as const,
+            jaAgradeci: agradecidos.has(p.message_id),
+            quando: p.created_at,
+            boatId: p.boat_id,
+            boatCode: p.boat_code,
+            stage: p.stage,
+            countryCode: p.country_code,
+            mensagem: p.content as string | null,
+            messageId: p.message_id,
+            gift: { id: p.gift_id, name: g?.name ?? p.gift_id, emoji: g?.emoji ?? '🎁' },
+            bau: baus.get(p.boat_id) ?? [],
+          };
+        }),
+        ...evolucoes.map((e) => ({
+          tipo: 'evolucao' as const,
+          quando: e.last_hop_at,
+          boatId: e.boat_id,
+          boatCode: e.boat_code,
+          de: e.stage_seen as number,
+          para: e.stage as number,
+          initialMessage: e.initial_message as string,
+        })),
+      ].sort((a, b) => new Date(a.quando).getTime() - new Date(b.quando).getTime());
+
+      return reply.send({ celebracoes: fila });
+    },
+  );
+
+  // ── POST /users/me/celebrations/ack ────────────────────────────────────────
+  //
+  // Uma comemoração por vez, conforme a pessoa fecha. Acusar em bloco seria
+  // mais simples e apagaria o que chegou entre a consulta e o fechamento.
+  app.post<{ Body: { giftUntil?: string; boatId?: string; stage?: number } }>(
+    '/users/me/celebrations/ack',
+    {},
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+      const { giftUntil, boatId, stage } = req.body ?? {};
+
+      if (giftUntil) {
+        // GREATEST para o relógio nunca andar para trás quando duas abas
+        // fecham comemorações fora de ordem
+        await pool.query(
+          `UPDATE users SET gifts_seen_at = GREATEST(gifts_seen_at, $2::timestamptz)
+            WHERE id = $1`,
+          [userId, giftUntil],
+        );
+      }
+      if (boatId && typeof stage === 'number') {
+        await pool.query(
+          `UPDATE boats SET stage_seen = GREATEST(COALESCE(stage_seen, 1), $3)
+            WHERE id = $2 AND creator_user_id = $1`,
+          [userId, boatId, stage],
+        );
+      }
+      return reply.send({ status: 'ok' });
+    },
+  );
+
+  // ── POST /users/me/thanks ──────────────────────────────────────────────────
+  //
+  // O obrigado por um presente. Frase PRONTA: o corpo traz a chave, nunca
+  // texto. Chave desconhecida é recusada aqui, antes de chegar ao banco.
+  app.post<{ Body: { messageId?: string; phrase?: string } }>(
+    '/users/me/thanks',
+    {},
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+
+      const { messageId, phrase } = req.body ?? {};
+      if (!messageId) return reply.code(400).send({ error: 'messageId obrigatório' });
+      if (!fraseValida(phrase)) return reply.code(400).send({ error: 'frase inválida' });
+
+      const r = await agradecer(userId, messageId, phrase);
+      if (r === 'nao_encontrado') return reply.code(404).send({ error: 'presente não encontrado' });
+      return reply.send({ status: r });
+    },
+  );
+
+  // ── GET /users/me/notifications ────────────────────────────────────────────
+  // A caixa de recados. Hoje só agradecimentos; o formato já é uma lista para
+  // caber outro tipo depois sem mexer no app.
+  app.get(
+    '/users/me/notifications',
+    {},
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+      return reply.send(await recadosDe(userId));
+    },
+  );
+
+  app.post(
+    '/users/me/notifications/ack',
+    {},
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+      await marcarRecadosLidos(userId);
       return reply.send({ status: 'ok' });
     },
   );
