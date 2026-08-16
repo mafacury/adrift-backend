@@ -2,6 +2,53 @@ import { pool } from '../db/pool.js';
 import { processRouting } from './process.js';
 import { COUNTRY_LANG } from './country-data.js';
 import { STAGE_CASE_SQL } from './progress.js';
+import { GIFTS, tierOf, type Tier } from './gifts.js';
+
+/**
+ * De quanto em quanto o bot deixa um presente a bordo.
+ *
+ * Um em vinte. O número saiu de medir o tráfego, não de chute: os barcos de um
+ * usuário davam 37 pulos por dia, o que a esta taxa vira menos de duas
+ * comemorações diárias. Uma em oito daria quase cinco, e presente que chega
+ * cinco vezes por dia deixa de ser presente.
+ *
+ * Só quando o bot ESCREVE. Passar sem escrever e ainda assim deixar um
+ * presente seria estranho: o presente acompanha a mensagem, é assim que a
+ * tela mostra e é assim que o humano faz.
+ */
+const CHANCE_DE_PRESENTE = 1 / 20;
+
+/**
+ * Qual presente. A raridade do catálogo vira a raridade aqui: quase sempre um
+ * comum, raramente um lendário. Sem isso a Coroa de Ouro apareceria tanto
+ * quanto a Flor, e a escada de níveis do baú perderia o sentido.
+ *
+ * O bot não tem estoque para gastar — inventário é coisa de gente, e criar um
+ * para cada bot só para descontar de um número que ninguém vê seria trabalho
+ * sem efeito. Quem limita o bot é a raridade.
+ */
+const PESO_POR_NIVEL: Record<Tier, number> = {
+  comum:    70,
+  incomum:  22,
+  raro:      7,
+  lendario:  1,
+};
+
+function presenteDeBot(): string | null {
+  if (Math.random() >= CHANCE_DE_PRESENTE) return null;
+
+  const sorteio = Math.random() * 100;
+  let acumulado = 0;
+  let nivelEscolhido: Tier = 'comum';
+  for (const [nivel, peso] of Object.entries(PESO_POR_NIVEL) as [Tier, number][]) {
+    acumulado += peso;
+    if (sorteio < acumulado) { nivelEscolhido = nivel; break; }
+  }
+
+  const candidatos = Object.values(GIFTS).filter((g) => tierOf(g.weight) === nivelEscolhido);
+  if (!candidatos.length) return null;
+  return candidatos[Math.floor(Math.random() * candidatos.length)].id;
+}
 
 /**
  * Usuários virtuais (bots) espalhados pelo mundo.
@@ -231,10 +278,12 @@ export async function botRespondSweep(): Promise<void> {
 
         let messageId: string | null = null;
         if (content) {
+          // e, de vez em quando, algo a bordo junto da mensagem
+          const gift = presenteDeBot();
           const { rows } = await pool.query(
-            `INSERT INTO boat_messages (boat_id, user_id, content, country_code)
-             VALUES ($1, $2, $3, $4) RETURNING id`,
-            [entry.boat_id, entry.user_id, content, country],
+            `INSERT INTO boat_messages (boat_id, user_id, content, country_code, gift_id)
+             VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+            [entry.boat_id, entry.user_id, content, country, gift],
           );
           messageId = rows[0].id;
         }
