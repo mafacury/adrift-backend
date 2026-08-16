@@ -8,9 +8,20 @@
  * a posição no grande círculo entre origem e destino pela fração do tempo já
  * navegada. Daí saem a distância até quem está olhando e a marcação (rumo).
  *
- * PRIVACIDADE: sai daqui apenas distância e marcação. Nunca o país de origem
- * ou destino, nunca de quem é o barco, nunca um id — não há o que correlacionar
- * entre duas consultas.
+ * PRIVACIDADE: saem daqui distância, marcação e o país de DESTINO. Nunca o
+ * país de origem, nunca de quem é o barco, nunca um id.
+ *
+ * O destino passou a sair em 14/08/2026, por decisão do dono do produto: país
+ * não é pessoa, na escala que vem há centenas ou milhares de usuários em cada
+ * um, não existe ação a tomar em cima da informação, e cada observador só vê os
+ * poucos barcos que passam perto da sua costa. É curiosidade, não rastreio.
+ *
+ * A frase que estava aqui antes — "não há o que correlacionar entre duas
+ * consultas" — já não era verdade quando o destino entrou. A ficha do barco
+ * (mensagens, países, dias) foi acrescentada depois dela e identifica o mesmo
+ * casco entre duas leituras em cerca de dois terços dos casos, medido na
+ * produção. Quem quisesse o destino já podia calculá-lo com duas amostras de
+ * distância e marcação; o que mudou foi o trabalho, não o sigilo.
  *
  * O cálculo pesado (posição de cada travessia) não depende de quem pergunta,
  * então fica em cache por alguns segundos e serve a todo mundo; só a distância
@@ -52,6 +63,8 @@ interface Leg {
   countries: number;
   /** Há quantos dias está no mar. */
   days: number;
+  /** Para onde vai. Ver a nota de privacidade no topo do arquivo. */
+  destCountry: string | null;
 }
 
 let cache: { at: number; legs: Leg[] } | null = null;
@@ -76,7 +89,8 @@ async function inFlightLegs(): Promise<Leg[]> {
        COALESCE(oh.lat, om.lat) AS o_lat,
        COALESCE(oh.lon, om.lon) AS o_lon,
        d.lat AS d_lat,
-       d.lon AS d_lon
+       d.lon AS d_lon,
+       COALESCE(rq.dest_country, ru.country_code) AS dest_country
      FROM receiver_queue rq
      JOIN users ru ON ru.id = rq.user_id
      JOIN boats b  ON b.id  = rq.boat_id
@@ -114,6 +128,7 @@ async function inFlightLegs(): Promise<Leg[]> {
       messages:  Number(r.messages) || 0,
       countries: Number(r.unique_countries) || 0,
       days:      Math.max(Number(r.days) || 0, 0),
+      destCountry: r.dest_country ?? null,
     }));
 
   cache = { at: Date.now(), legs };
@@ -254,6 +269,21 @@ export interface Sighting {
   bearing: number;
   /** Quanto a marcação anda por minuto — o barco cruzando o horizonte. */
   bearingPerMin: number;
+  /**
+   * Para onde o barco vai.
+   *
+   * Decisão do dono do produto, em 14/08/2026, contra a minha recomendação de
+   * então — e o argumento dele venceu: país não é pessoa. Com centenas ou
+   * milhares de usuários por país o destino não aponta ninguém, não existe ação
+   * a tomar em cima dele, e cada observador vê só os poucos barcos que passam
+   * perto da sua costa (alcance e panorama filtram o resto). É curiosidade:
+   * "aquele barco ao longe está indo para a China".
+   *
+   * A ressalva que fica registrada: enquanto o app tiver poucos usuários por
+   * país, país AINDA se aproxima de pessoa. O argumento é sobre a escala que
+   * vem, não sobre a de hoje.
+   */
+  destCountry: string | null;
 }
 
 function sight(leg: Leg, lat: number, lon: number, atMs: number, center: number): Sighting {
@@ -273,6 +303,7 @@ function sight(leg: Leg, lat: number, lon: number, atMs: number, center: number)
     // já girada para o centro da tela; a velocidade angular não muda com o giro
     bearing:       Math.round(relative(br - center) * 10) / 10,
     bearingPerMin: Math.round(turn(br, br2) / LOOKAHEAD_MIN * 100) / 100,
+    destCountry:   leg.destCountry,
   };
 }
 
