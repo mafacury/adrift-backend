@@ -58,7 +58,17 @@ await app.register(adminRoutes);
 await app.register(demoRoutes); // TEMPORÁRIO — remover em produção
 
 // Health check
-app.get('/health', async () => ({ status: 'ok' }));
+// O /health diz de que COMMIT e de quando é o processo que está no ar.
+//
+// Sem isso, verificar um deploy vira adivinhação: já aconteceu de eu concluir
+// que uma mudança "não subiu" observando um evento de 5% por dez minutos, o
+// que não prova nada. Data de início e commit provam.
+const SUBIU_EM = new Date().toISOString();
+app.get('/health', async () => ({
+  status: 'ok',
+  desde: SUBIU_EM,
+  commit: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? 'desconhecido',
+}));
 
 // Start scheduler (moderação e roteamento rodam inline — sem Redis)
 startScheduler();
