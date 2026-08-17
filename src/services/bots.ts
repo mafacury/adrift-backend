@@ -16,7 +16,20 @@ import { GIFTS, tierOf, type Tier } from './gifts.js';
  * presente seria estranho: o presente acompanha a mensagem, é assim que a
  * tela mostra e é assim que o humano faz.
  */
-const CHANCE_DE_PRESENTE = 1 / 20;
+const CHANCE_NORMAL = 1 / 20;
+
+/**
+ * Janela de teste: até esta data a taxa sobe para 1 em 5, para dar para ver a
+ * mecânica funcionando sem depender de sorte. Depois ela VOLTA SOZINHA ao
+ * normal — nada de depender de alguém lembrar de desfazer, que é como taxa de
+ * teste vira taxa de produção por esquecimento.
+ */
+const TESTE_ATE = Date.parse('2026-08-19T00:00:00Z');
+const CHANCE_TESTE = 1 / 5;
+
+function chanceDePresente(): number {
+  return Date.now() < TESTE_ATE ? CHANCE_TESTE : CHANCE_NORMAL;
+}
 
 /**
  * Qual presente. A raridade do catálogo vira a raridade aqui: quase sempre um
@@ -35,7 +48,7 @@ const PESO_POR_NIVEL: Record<Tier, number> = {
 };
 
 function presenteDeBot(): string | null {
-  if (Math.random() >= CHANCE_DE_PRESENTE) return null;
+  if (Math.random() >= chanceDePresente()) return null;
 
   const sorteio = Math.random() * 100;
   let acumulado = 0;
