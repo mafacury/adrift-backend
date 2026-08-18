@@ -40,9 +40,13 @@ await app.register(rateLimit, {
   timeWindow: '1 minute',
   // trustProxy já está ligado no Fastify; sem isto todo mundo vira o IP do Railway
   keyGenerator: (req) => req.ip,
-  errorResponseBuilder: () => ({
+  // `statusCode` PRECISA vir aqui dentro. Sem ele o Fastify não sabe que este
+  // objeto é um 429 e responde 500 — o cliente ouve "o servidor quebrou" quando
+  // a verdade é "você está indo rápido demais". Testado contra a produção.
+  errorResponseBuilder: (_req, ctx) => ({
+    statusCode: 429,
     error: 'muitas_requisicoes',
-    message: 'Devagar. Espere um minuto e tente de novo.',
+    message: `Devagar. Espere ${Math.ceil(ctx.ttl / 1000)}s e tente de novo.`,
   }),
 });
 
