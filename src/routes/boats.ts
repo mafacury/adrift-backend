@@ -7,7 +7,8 @@ import { liveStateFrom } from '../services/live.js';
 import { greatCirclePoint, legProgress } from '../services/horizon.js';
 import { STAGE_CASE_SQL } from '../services/progress.js';
 import { startReturn, MIN_COUNTRIES_TO_RETURN } from '../services/journey.js';
-import { sendPushToUser, boatGiftMessage } from '../services/push.js';
+import { boatGiftMessage } from '../services/push.js';
+import { avisar } from '../services/notify.js';
 import { config } from '../config/index.js';
 import { traduzirMensagens } from '../services/translate.js';
 
@@ -216,7 +217,7 @@ export async function boatRoutes(app: FastifyInstance) {
           const creatorId = cr[0]?.creator_user_id;
           if (creatorId && creatorId !== userId) {
             const msg = boatGiftMessage();
-            void sendPushToUser(creatorId, msg.title, msg.body);
+            void avisar(creatorId, { titulo: msg.title, corpo: msg.body, url: '/map', tag: 'presente' });
           }
         }
 

@@ -14,7 +14,8 @@
  * em index.ts) e ela volta a ser elegível na mesma hora.
  */
 import { pool } from '../db/pool.js';
-import { sendPushToUser, comeBackMessage } from './push.js';
+import { comeBackMessage } from './push.js';
+import { avisar } from './notify.js';
 
 /** A partir daqui a pessoa saiu do sorteio e vira candidata a convite. */
 const INACTIVE_DAYS = 8;
@@ -44,7 +45,7 @@ export async function reengageSweep(): Promise<void> {
 
     for (const r of rows) {
       const { title, body } = comeBackMessage();
-      void sendPushToUser(r.id, title, body);
+      void avisar(r.id, { titulo: title, corpo: body, url: '/', tag: 'volte' });
     }
     // marca antes de conferir entrega: push que falhou não deve virar insistência
     await pool.query(

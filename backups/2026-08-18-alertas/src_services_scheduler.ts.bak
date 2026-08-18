@@ -4,7 +4,6 @@ import { processRouting, sweepStrandedBoats, reenfileirarNaoModerados } from './
 import { botRespondSweep } from './bots.js';
 import { journeySweep } from './journey.js';
 import { reengageSweep } from './reengage.js';
-import { avisarChegadas, avisarPrazo, avisarPerdas } from './alerts.js';
 
 export function startScheduler() {
   // Every minute: expire timed-out queue entries and reroute those boats
@@ -32,14 +31,6 @@ export function startScheduler() {
 
   // Every minute: bots respond to boats waiting in their queues
   cron.schedule('* * * * *', botRespondSweep);
-
-  // A cada minuto: a escada de avisos de barco. Antes disto o app avisava uma
-  // vez só, na PARTIDA — que a 3000mn é horas antes de haver o que fazer — e
-  // depois ficava mudo na chegada, no prazo correndo e na perda. Foi assim que
-  // um barco se perdeu em 18/08 sem ninguém saber.
-  cron.schedule('* * * * *', avisarChegadas);   // atracou
-  cron.schedule('* * * * *', avisarPrazo);      // falta pouco (o que salva o barco)
-  cron.schedule('* * * * *', avisarPerdas);     // partiu
 
   // Every 15 min: re-route boats stranded without a pending queue entry
   cron.schedule('*/15 * * * *', sweepStrandedBoats);

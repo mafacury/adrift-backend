@@ -27,27 +27,6 @@ export const config = {
     privateKey: process.env.FCM_PRIVATE_KEY ?? '',
   },
 
-  /**
-   * Web Push. As chaves VAPID se geram localmente — não há conta em fornecedor
-   * nenhum envolvida:
-   *
-   *   node -e "const w=require('web-push');const k=w.generateVAPIDKeys();console.log(k)"
-   *
-   * A PÚBLICA também vai no cliente (mobile/services/push.ts) — ela é pública
-   * mesmo. A PRIVADA fica só aqui e no Railway.
-   *
-   * Sem as duas, o Web Push fica desligado e o boot avisa. Nesse estado, quem
-   * usa o app pelo navegador não recebe nada com a aba fechada — que foi
-   * exatamente como um barco se perdeu em 18/08.
-   */
-  push: {
-    vapidPublic: process.env.VAPID_PUBLIC_KEY ?? '',
-    vapidPrivate: process.env.VAPID_PRIVATE_KEY ?? '',
-    vapidSubject: process.env.VAPID_SUBJECT ?? 'mailto:mafacury@gmail.com',
-    /** Quantas horas antes de o barco zarpar o último aviso sai. */
-    avisoPrazoHoras: int('AVISO_PRAZO_HORAS', 2),
-  },
-
   boat: {
     maxIgnoresPerUser: int('MAX_IGNORES_PER_USER', 2),
     // "aquecimento": segundos que o barco leva navegando até um receptor humano

@@ -2,7 +2,8 @@ import { pool } from '../db/pool.js';
 import { moderate } from './moderation.js';
 import { avaliarConduta } from './enforcement.js';
 import { config } from '../config/index.js';
-import { sendPushToUser, boatComingMessage } from './push.js';
+import { boatComingMessage } from './push.js';
+import { avisar } from './notify.js';
 import {
   pickNextReceiver,
   pickRandomDestCountry,
@@ -119,7 +120,7 @@ export async function processRouting(data: RoutingData): Promise<void> {
     // avisa o receptor que um barco está a caminho (bots não têm token)
     if (!receiver.isBot) {
       const { title, body } = boatComingMessage();
-      void sendPushToUser(receiver.id, title, body);
+      void avisar(receiver.id, { titulo: title, corpo: body, url: '/receive', tag: 'barco-vindo' });
     }
   } catch (err) {
     console.error(`[routing] boat ${boatId} failed:`, err);

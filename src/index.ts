@@ -12,6 +12,7 @@ import { startScheduler } from './services/scheduler.js';
 import { pool } from './db/pool.js';
 import { ensureBots } from './services/bots.js';
 import { captchaLigado } from './services/captcha.js';
+import { webPushLigado } from './services/notify.js';
 
 const app = Fastify({ logger: true, trustProxy: true });
 
@@ -120,6 +121,11 @@ console.log(
 );
 if (!captchaLigado()) {
   console.warn('[defesas] CAPTCHA DESLIGADO — falta TURNSTILE_SECRET. Cadastro em massa é possível.');
+}
+if (!webPushLigado()) {
+  console.warn('[defesas] WEB PUSH DESLIGADO — faltam VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY. Quem usa pelo navegador nao sera avisado de barco nenhum com a aba fechada.');
+} else {
+  console.log(`[avisos] web push ligado · aviso de prazo ${config.push.avisoPrazoHoras}h antes de zarpar`);
 }
 if (!config.antispam.requireEmailVerification) {
   console.warn('[defesas] verificação de e-mail DESLIGADA — REQUIRE_EMAIL_VERIFICATION != true. Conta descartável é possível.');
