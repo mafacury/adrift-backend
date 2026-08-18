@@ -13,6 +13,7 @@ import { pool } from './db/pool.js';
 import { ensureBots } from './services/bots.js';
 import { captchaLigado } from './services/captcha.js';
 import { webPushLigado } from './services/notify.js';
+import { envioRealLigado, smtpLigado } from './services/mail.js';
 
 const app = Fastify({ logger: true, trustProxy: true });
 
@@ -154,6 +155,11 @@ if (!webPushLigado()) {
   console.warn('[defesas] WEB PUSH DESLIGADO — faltam VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY. Quem usa pelo navegador nao sera avisado de barco nenhum com a aba fechada.');
 } else {
   console.log(`[avisos] web push ligado · aviso de prazo ${config.push.avisoPrazoHoras}h antes de zarpar`);
+}
+if (envioRealLigado()) {
+  console.log(`[avisos] e-mail ligado por ${smtpLigado() ? 'SMTP (' + process.env.SMTP_HOST + ')' : 'Resend'}`);
+} else {
+  console.warn('[avisos] E-MAIL DESLIGADO — recuperação de senha e aviso de prazo só saem no log.');
 }
 if (!config.antispam.requireEmailVerification) {
   console.warn('[defesas] verificação de e-mail DESLIGADA — REQUIRE_EMAIL_VERIFICATION != true. Conta descartável é possível.');

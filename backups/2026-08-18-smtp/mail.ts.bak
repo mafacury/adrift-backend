@@ -1,85 +1,31 @@
 /**
  * Envio de e-mail.
  *
- * Uma porta com TRÊS saídas, tentadas nesta ordem:
+ * O Adrift não tinha nenhum — a recuperação de senha é o primeiro caso. Em vez
+ * de amarrar o código a um fornecedor, isto aqui é uma porta com duas saídas:
  *
- *   COM `SMTP_HOST`       manda pelo servidor de e-mail do próprio domínio
- *                         (Hostinger). É o caminho escolhido — ver abaixo.
- *   COM `RESEND_API_KEY`  manda pela API do Resend, sem biblioteca.
- *   SEM nenhum dos dois   escreve o e-mail no log do servidor, inteiro, com o
+ *   COM `RESEND_API_KEY`  manda de verdade, pela API do Resend (uma chamada
+ *                         HTTPS, sem biblioteca nova no projeto).
+ *   SEM a chave           escreve o e-mail no log do servidor, inteiro, com o
  *                         link clicável.
  *
- * A terceira saída não é preguiça: é o que permite testar o fluxo sem gastar
- * cota nem mandar mensagem para ninguém de verdade.
+ * A segunda saída não é preguiça: é o que permite testar o fluxo hoje, antes
+ * de o domínio estar verificado no fornecedor. E deixa o dia de desenvolvimento
+ * funcionando sem gastar cota nem mandar mensagem para ninguém de verdade.
  *
- * ── Por que SMTP e não Resend ───────────────────────────────────────────────
+ * PARA LIGAR O ENVIO REAL:
+ *   1. conta em resend.com e uma API key
+ *   2. verificar o domínio adriftapp.fun (registros DNS na Hostinger)
+ *   3. no Railway: RESEND_API_KEY=... e MAIL_FROM="Adrift <nao-responda@adriftapp.fun>"
  *
- * A conta era do Resend até 18/08/2026, quando conferi o DNS de adriftapp.fun e
- * descobri que ele JÁ ESTAVA pronto para enviar:
- *
- *   SPF    v=spf1 include:_spf.mail.hostinger.com ~all
- *   DKIM   hostingermail-a._domainkey  (chave publicada)
- *   DMARC  v=DMARC1; p=none
- *
- * Eu vinha dizendo que "o trabalho de verdade é o DNS, e é igual nos dois
- * caminhos". Não era: pela Hostinger estava feito, pelo Resend faltariam três
- * registros novos e uma conta. Autenticação de e-mail é o que separa "chega" de
- * "cai no spam", e ela já existia — só de um lado.
- *
- * O Resend continua aqui, inteiro. Se um dia o volume crescer (a Hostinger
- * limita bem mais que os 3.000/mês do plano grátis dele) ou a entrega piorar,
- * basta configurar a chave: `SMTP_HOST` vazio e ele assume, sem tocar em código.
- *
- * PARA LIGAR (no Railway):
- *   SMTP_HOST=smtp.hostinger.com
- *   SMTP_PORT=465
- *   SMTP_USER=contact@adriftapp.fun
- *   SMTP_PASS=<a senha da caixa>
- *   MAIL_FROM=Adrift <contact@adriftapp.fun>
- *
- * O remetente PRECISA ser a mesma caixa do SMTP_USER: a Hostinger recusa enviar
- * em nome de endereço que não seja o autenticado. E usar a caixa de verdade
- * como remetente tem uma vantagem sobre um `nao-responda@`: quem responder cai
- * em algum lugar em vez de receber devolução.
+ * Sem o passo 2, o Resend só entrega para o e-mail do dono da conta, usando o
+ * remetente onboarding@resend.dev — serve para testar, não para usuários.
  */
-import nodemailer, { type Transporter } from 'nodemailer';
 
 const RESEND_URL = 'https://api.resend.com/emails';
 
-export function smtpLigado(): boolean {
-  return !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
-}
-
 export function envioRealLigado(): boolean {
-  return smtpLigado() || !!process.env.RESEND_API_KEY;
-}
-
-/**
- * Uma conexão só, reaproveitada.
- *
- * Criar um transporte por e-mail enviado abre e fecha TLS toda vez — caro, e a
- * Hostinger reclama de excesso de conexões. O nodemailer faz o pool sozinho
- * desde que o objeto seja o mesmo.
- */
-let transporte: Transporter | null = null;
-function pegarTransporte(): Transporter {
-  if (!transporte) {
-    const porta = parseInt(process.env.SMTP_PORT ?? '465', 10);
-    transporte = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: porta,
-      secure: porta === 465,          // 465 = TLS direto; 587 = STARTTLS
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-      pool: true,
-      maxConnections: 2,
-      // O envio nunca pode segurar uma requisição do app. Se o servidor de
-      // e-mail estiver lento, desiste e o chamador segue a vida.
-      connectionTimeout: 10_000,
-      greetingTimeout: 10_000,
-      socketTimeout: 20_000,
-    });
-  }
-  return transporte;
+  return !!process.env.RESEND_API_KEY;
 }
 
 export async function enviarEmail(
@@ -88,28 +34,11 @@ export async function enviarEmail(
   const chave = process.env.RESEND_API_KEY;
   const de = process.env.MAIL_FROM ?? 'Adrift <onboarding@resend.dev>';
 
-  // ── Saída 1: SMTP do próprio domínio ──────────────────────────────────────
-  if (smtpLigado()) {
-    try {
-      const info = await pegarTransporte().sendMail({
-        from: de, to: para, subject: assunto, html, text: texto,
-      });
-      console.log(`[mail] enviado por SMTP para ${para} (${info.messageId})`);
-      return true;
-    } catch (e: any) {
-      // Não cai para o Resend nem para o log: se o SMTP está configurado e
-      // falhou, o motivo (senha errada, caixa cheia, porta bloqueada) precisa
-      // aparecer inteiro em vez de sumir atrás de um caminho alternativo.
-      console.error('[mail] SMTP falhou:', e?.code ?? '', e?.message ?? e);
-      return false;
-    }
-  }
-
   if (!chave) {
     // Sem fornecedor: o e-mail vai para o log, com moldura para não se perder
     // no meio das outras linhas.
     console.log(
-      '\n┌─ E-MAIL NÃO ENVIADO (falta SMTP_HOST ou RESEND_API_KEY) ────\n' +
+      '\n┌─ E-MAIL NÃO ENVIADO (falta RESEND_API_KEY) ─────────────────\n' +
       `│ para:    ${para}\n` +
       `│ assunto: ${assunto}\n` +
       '├─────────────────────────────────────────────────────────────\n' +
