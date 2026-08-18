@@ -64,29 +64,6 @@ app.addHook('preHandler', async (req) => {
 });
 
 /**
- * Trava da espiada administrativa.
- *
- * O token emitido por POST /admin/espiar/:id carrega `espiando: true`. Aqui é
- * onde "somente leitura" deixa de ser promessa e vira fato: qualquer método que
- * não seja GET é recusado, seja qual for a rota.
- *
- * A trava mora AQUI, e não na tela, por um motivo simples: esconder botão não
- * impede nada de quem falar direto com a API. E mora antes de tudo, para valer
- * também para rota que alguém criar amanhã sem lembrar que esta trava existe —
- * rota nova nasce protegida em vez de nascer aberta.
- */
-app.addHook('preHandler', async (req, reply) => {
-  const u = (req as any).user;
-  if (!u?.espiando) return;
-  if (req.method !== 'GET') {
-    return reply.code(403).send({
-      error: 'somente_leitura',
-      message: 'Você está vendo a conta de outra pessoa. Nesta visão nada pode ser alterado.',
-    });
-  }
-});
-
-/**
  * Presença. `last_active_at` decide quem está elegível a receber barcos
  * (services/routing.ts), mas era escrito SÓ no login — e o token não expira,
  * então ninguém faz login duas vezes. Na prática a coluna media "quando essa
@@ -101,11 +78,6 @@ app.addHook('preHandler', async (req, reply) => {
 app.addHook('preHandler', async (req) => {
   const userId = (req as any).user?.id;
   if (!userId) return;
-  // Espiar não é estar presente. Sem esta linha, abrir a conta de alguém a
-  // marcaria como ativa agora — e `last_active_at` é o que decide quem recebe
-  // barco (routing.ts). O administrador olhando mudaria a fila do mundo, que é
-  // o oposto de "sem interferir".
-  if ((req as any).user?.espiando) return;
   void pool.query(
     `UPDATE users SET last_active_at = NOW()
      WHERE id = $1 AND last_active_at < NOW() - INTERVAL '5 minutes'`,
