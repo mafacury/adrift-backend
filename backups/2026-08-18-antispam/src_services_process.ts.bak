@@ -1,6 +1,5 @@
 import { pool } from '../db/pool.js';
 import { moderate } from './moderation.js';
-import { avaliarConduta } from './enforcement.js';
 import { config } from '../config/index.js';
 import { sendPushToUser, boatComingMessage } from './push.js';
 import {
@@ -49,9 +48,9 @@ export async function processModeration(data: ModerationData): Promise<void> {
     const { verdict, layer, detail } = await moderate(content, historyRows, isNewUser);
 
     await pool.query(
-      `INSERT INTO moderation_log (boat_id, message_id, verdict, layer, detail, user_id)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [boatId, messageId, verdict, layer, detail, userId],
+      `INSERT INTO moderation_log (boat_id, message_id, verdict, layer, detail)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [boatId, messageId, verdict, layer, detail],
     );
 
     if (verdict === 'approved') {
@@ -65,8 +64,6 @@ export async function processModeration(data: ModerationData): Promise<void> {
         [boatId],
       );
       console.log(`[moderation] boat ${boatId} rejected (layer ${layer}): ${detail}`);
-      // Uma rejeição é acidente; cinco em 24h é ofício. Quem conta é o enforcement.
-      await avaliarConduta(userId);
     } else {
       await pool.query(`UPDATE boats SET status = 'paused' WHERE id = $1`, [boatId]);
       console.log(`[moderation] boat ${boatId} uncertain → paused for review`);
@@ -141,19 +138,10 @@ export async function sweepStrandedBoats(): Promise<void> {
            SELECT 1 FROM receiver_queue rq
            WHERE rq.boat_id = b.id AND rq.status = 'pending'
          )
-         -- SÓ o que foi explicitamente aprovado. Antes daqui a condição era
-         -- "não tem log dizendo rejected/uncertain" — que é VERDADE também
-         -- quando não há log NENHUM. E não há log nenhum justamente quando a
-         -- moderação quebrou (API fora do ar, cota estourada): o catch em
-         -- processModeration registra o erro e não grava linha. O barco ficava
-         -- 'active' por padrão, caía neste sweep e navegava SEM NUNCA TER SIDO
-         -- MODERADO. Falhava aberto — que é o pior jeito de falhar.
-         --
-         -- Agora falha fechado: sem carimbo de aprovado, o barco espera. Quem
-         -- ficou preso por uma queda da API é recuperado por reenfileirarNaoModerados().
-         AND EXISTS (
+         -- só barcos já moderados e aprovados (ou sem log = seeds/demo, já na fila)
+         AND NOT EXISTS (
            SELECT 1 FROM moderation_log ml
-           WHERE ml.boat_id = b.id AND ml.verdict = 'approved'
+           WHERE ml.boat_id = b.id AND ml.verdict IN ('rejected', 'uncertain')
          )
        LIMIT 50`,
     );
@@ -165,66 +153,5 @@ export async function sweepStrandedBoats(): Promise<void> {
     }
   } catch (err) {
     console.error('[sweep] error', err);
-  }
-}
-
-/**
- * Rede de segurança do sweep acima.
- *
- * Com o filtro em `EXISTS (verdict = 'approved')`, barco sem log NENHUM para de
- * navegar — que é o certo, porque "sem log" quer dizer "ninguém olhou isto". Mas
- * parar para sempre não é o certo. Dois tipos de barco caem nesse buraco:
- *
- *   1. os que a moderação não conseguiu julgar (API fora, cota estourada) — o
- *      catch de processModeration registra o erro e não grava linha;
- *   2. os de seed, criados direto no banco sem passar por moderação.
- *
- * Os dois querem a mesma coisa: serem julgados. Então é isso que fazemos —
- * roda a moderação de verdade sobre a primeira mensagem do barco. Quem for
- * aprovado segue viagem, quem for rejeitado é arquivado. Nada navega por
- * omissão.
- *
- * De 15 em 15 minutos e no máximo 20 por vez: se a API caiu por uma hora, isto
- * drena a fila aos poucos em vez de despejar tudo de uma vez na volta dela.
- */
-export async function reenfileirarNaoModerados(): Promise<void> {
-  try {
-    const { rows } = await pool.query(
-      `SELECT b.id, m.id AS message_id, m.content, m.user_id, m.country_code
-         FROM boats b
-         JOIN LATERAL (
-           SELECT id, content, user_id, country_code
-             FROM boat_messages
-            WHERE boat_id = b.id
-            ORDER BY created_at ASC
-            LIMIT 1
-         ) m ON TRUE
-        WHERE b.status = 'active'
-          AND NOT EXISTS (
-            SELECT 1 FROM receiver_queue rq
-             WHERE rq.boat_id = b.id AND rq.status = 'pending'
-          )
-          AND NOT EXISTS (
-            SELECT 1 FROM moderation_log ml WHERE ml.boat_id = b.id
-          )
-          -- respiro: dá tempo de a moderação normal terminar antes de assumir
-          -- que ela falhou
-          AND b.created_at < NOW() - INTERVAL '10 minutes'
-        LIMIT 20`,
-    );
-    if (rows.length === 0) return;
-
-    console.log(`[remoderar] ${rows.length} barco(s) sem julgamento — moderando agora`);
-    for (const r of rows) {
-      await processModeration({
-        boatId: r.id,
-        messageId: r.message_id,
-        content: r.content,
-        userId: r.user_id,
-        countryCode: r.country_code,
-      });
-    }
-  } catch (err) {
-    console.error('[remoderar] error', err);
   }
 }

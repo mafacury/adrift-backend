@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { pool } from '../db/pool.js';
-import { processRouting, sweepStrandedBoats } from './process.js';
+import { processRouting, sweepStrandedBoats, reenfileirarNaoModerados } from './process.js';
 import { botRespondSweep } from './bots.js';
 import { journeySweep } from './journey.js';
 import { reengageSweep } from './reengage.js';
@@ -34,6 +34,12 @@ export function startScheduler() {
 
   // Every 15 min: re-route boats stranded without a pending queue entry
   cron.schedule('*/15 * * * *', sweepStrandedBoats);
+
+  // A cada 15 min: barco parado SEM veredito nenhum — moderação que quebrou
+  // (API fora, cota estourada) ou barco de seed criado direto no banco. O
+  // sweep acima só solta o que foi aprovado, então sem isto eles ficariam
+  // parados para sempre. Aqui eles são de fato julgados.
+  cron.schedule('*/15 * * * *', reenfileirarNaoModerados);
 
   // A cada minuto: fim da jornada — chegadas em casa, partidas represadas e
   // os gatilhos automáticos (Nau Lendária, assunto esgotado, perdido no mar).

@@ -1,7 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
-import rateLimit from '@fastify/rate-limit';
 import { config } from './config/index.js';
 import { authRoutes } from './routes/auth.js';
 import { boatRoutes } from './routes/boats.js';
@@ -11,40 +10,11 @@ import { demoRoutes } from './routes/demo.js';
 import { startScheduler } from './services/scheduler.js';
 import { pool } from './db/pool.js';
 import { ensureBots } from './services/bots.js';
-import { captchaLigado } from './services/captcha.js';
 
 const app = Fastify({ logger: true, trustProxy: true });
 
 await app.register(cors, { origin: true });
 await app.register(jwt, { secret: config.jwtSecret });
-
-/**
- * Limite de taxa por IP.
- *
- * Não havia nenhum. Isso deixava duas portas abertas de uma vez: força bruta de
- * senha sem trava, e — mais concreto — exaustão de CPU, porque cada tentativa de
- * login roda um bcrypt de custo 12 (centenas de ms). Numa instância só, algumas
- * dezenas de requisições simultâneas seguram o núcleo e derrubam o app inteiro.
- *
- * O teto geral é folgado (o app conversa bastante com o servidor). Quem aperta
- * de verdade é o teto por rota, aplicado nas que rodam bcrypt e na criação de
- * conta — ver routes/auth.ts.
- *
- * Guarda em memória, sem Redis: o Adrift roda numa instância só no Railway.
- * No dia em que forem duas, isto vira dois baldes independentes e cada teto
- * dobra na prática — a hora de apontar para um Redis é essa, não antes.
- */
-await app.register(rateLimit, {
-  global: true,
-  max: config.antispam.rateLimitMax,
-  timeWindow: '1 minute',
-  // trustProxy já está ligado no Fastify; sem isto todo mundo vira o IP do Railway
-  keyGenerator: (req) => req.ip,
-  errorResponseBuilder: () => ({
-    error: 'muitas_requisicoes',
-    message: 'Devagar. Espere um minuto e tente de novo.',
-  }),
-});
 
 // Auth hook — attach user to request if token present
 app.addHook('preHandler', async (req) => {
@@ -99,27 +69,6 @@ app.get('/health', async () => ({
   desde: SUBIU_EM,
   commit: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? 'desconhecido',
 }));
-
-/**
- * Estado das defesas, dito em voz alta no boot.
- *
- * Duas das cinco defesas antispam dependem de chave de terceiro e ficam
- * DESLIGADAS sem ela. Uma defesa desligada em silêncio é pior do que nenhuma:
- * dá a sensação de estar protegido. Então o servidor diz, toda vez que sobe,
- * o que está de pé e o que não está.
- */
-console.log(
-  '[defesas] ' +
-  `limite de taxa: ${config.antispam.rateLimitMax}/min por IP · ` +
-  `barcos por conta: ${config.antispam.maxActiveBoatsPerUser} · ` +
-  `banimento automático: ${config.antispam.autobanBanAt} rejeições/24h`,
-);
-if (!captchaLigado()) {
-  console.warn('[defesas] CAPTCHA DESLIGADO — falta TURNSTILE_SECRET. Cadastro em massa é possível.');
-}
-if (!config.antispam.requireEmailVerification) {
-  console.warn('[defesas] verificação de e-mail DESLIGADA — REQUIRE_EMAIL_VERIFICATION != true. Conta descartável é possível.');
-}
 
 // Start scheduler (moderação e roteamento rodam inline — sem Redis)
 startScheduler();

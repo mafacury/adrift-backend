@@ -34,47 +34,6 @@ export async function boatRoutes(app: FastifyInstance) {
       if (!userId) return reply.code(401).send({ error: 'unauthorized' });
 
       const { content, giftId } = req.body;
-
-      // ── Freio de lançamento ────────────────────────────────────────────────
-      // Não existia teto nenhum: uma conta lançava barcos até cansar, e uma
-      // fábrica de contas multiplicava isso. Dois limites, ambos folgados para
-      // quem usa o app de verdade e ruinosos para quem despeja propaganda.
-      const { rows: freio } = await pool.query(
-        `SELECT
-           (SELECT COUNT(*)::int FROM boats
-             WHERE creator_user_id = $1 AND status = 'active')          AS ativos,
-           (SELECT MAX(created_at) FROM boats
-             WHERE creator_user_id = $1)                                AS ultimo`,
-        [userId],
-      );
-      const ativos: number = freio[0]?.ativos ?? 0;
-      const ultimo: Date | null = freio[0]?.ultimo ?? null;
-
-      if (ativos >= config.antispam.maxActiveBoatsPerUser) {
-        return reply.code(429).send({
-          error: 'limite_de_barcos',
-          message:
-            `Você já tem ${ativos} barcos no mar. Espere um deles voltar ` +
-            'para casa antes de lançar outro.',
-        });
-      }
-
-      if (ultimo) {
-        const esperaSeg = config.antispam.launchCooldownSec;
-        const decorrido = (Date.now() - new Date(ultimo).getTime()) / 1000;
-        if (decorrido < esperaSeg) {
-          const faltam = Math.ceil(esperaSeg - decorrido);
-          return reply.code(429).send({
-            error: 'aguarde',
-            message:
-              'Um barco de cada vez. Espere ' +
-              (faltam >= 60 ? `${Math.ceil(faltam / 60)} minuto(s)` : `${faltam} segundos`) +
-              ' para lançar o próximo.',
-            retryAfterSec: faltam,
-          });
-        }
-      }
-
       // Usa o país do JWT (detectado no login) ou faz fallback para IP atual
       const countryCode = (req as any).user?.country || await countryFromIp(req.ip);
 
