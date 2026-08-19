@@ -319,9 +319,13 @@ export async function authRoutes(app: FastifyInstance) {
           }
           const googleCountry = await countryFromIp(req.ip);
           const { rows } = await pool.query(
+            // email_verified = TRUE: quem entra pelo Google já provou o e-mail
+            // lá. Mandá-lo confirmar de novo seria pedir duas vezes a mesma
+            // coisa — e, pior, o padrão da coluna é FALSE, então sem esta linha
+            // ele nasceria trancado no dia em que a verificação for exigida.
             `INSERT INTO users (email, oauth_provider, oauth_id, country_code,
-                                terms_accepted_at, terms_version)
-             VALUES ($1, 'google', $2, $3, NOW(), $4)
+                                terms_accepted_at, terms_version, email_verified)
+             VALUES ($1, 'google', $2, $3, NOW(), $4, TRUE)
              RETURNING id`,
             [googleUser.email.toLowerCase(), googleUser.sub, googleCountry, req.body.terms_version],
           );
