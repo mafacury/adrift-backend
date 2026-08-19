@@ -34,6 +34,20 @@ interface GoogleBody {
 }
 
 /**
+ * O endereço PÚBLICO deste servidor — não o do site.
+ *
+ * O Railway expõe o domínio em RAILWAY_PUBLIC_DOMAIN, então em produção isto se
+ * resolve sozinho e continua certo se o domínio mudar. `API_URL` permite forçar
+ * à mão; o literal é a última rede.
+ */
+function apiUrl(): string {
+  if (process.env.API_URL) return process.env.API_URL.replace(/\/+$/, '');
+  const railway = process.env.RAILWAY_PUBLIC_DOMAIN;
+  if (railway) return `https://${railway}`;
+  return 'https://adrift-backend-production.up.railway.app';
+}
+
+/**
  * Cria um token de confirmação de e-mail e manda o link.
  *
  * Mesmo desenho do password_resets: o banco guarda só o HASH do token. Se o
@@ -53,8 +67,19 @@ async function emitirVerificacao(userId: string, email: string): Promise<void> {
       [userId, hash],
     );
 
-    const base = process.env.APP_URL ?? 'https://adriftapp.fun';
-    const link = `${base}/auth/verify?token=${token}`;
+    // ATENÇÃO: este link aponta para o BACKEND, não para o site.
+    //
+    // Quem responde GET /auth/verify é esta aplicação. O site é estático e tem
+    // reescrita de SPA: um link para adriftapp.fun/auth/verify carregaria o app
+    // numa rota que não existe, e o handler daqui nunca seria chamado. Foi o que
+    // aconteceu quando escrevi isto pela primeira vez — teria trancado para fora
+    // todo usuário novo no dia em que a verificação fosse ligada.
+    //
+    // A recuperação de senha resolve o mesmo problema por outro caminho
+    // (`/?reset=token` na raiz, tratado pelo app). Aqui vale mais apontar para
+    // cá: a página de confirmação é servida pronta pelo servidor, então funciona
+    // mesmo antes de o site ser republicado.
+    const link = `${apiUrl()}/auth/verify?token=${token}`;
     const { assunto, html, texto } = emailDeVerificacao(link);
     await enviarEmail(email, assunto, html, texto);
   } catch (err) {
