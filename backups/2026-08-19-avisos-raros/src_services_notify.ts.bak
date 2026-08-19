@@ -55,8 +55,6 @@ export interface Aviso {
   tag?: string;
   /** Só para o que dói perder — e só se houver RESEND_API_KEY. */
   porEmail?: boolean;
-  /** Rótulo do botão no e-mail. "Abrir o Adrift" quando não dito. */
-  rotuloBotao?: string;
 }
 
 /** Web Push para TODOS os navegadores registrados da pessoa. */
@@ -146,7 +144,7 @@ async function porEmailSeCabivel(userId: string, aviso: Aviso): Promise<number> 
     // A moldura (logotipo, rodapé, contato) mora em mail.ts. Aqui só dizemos o
     // que aconteceu — antes daqui este aviso saía como um parágrafo solto, sem
     // marca nem jeito de responder.
-    const { html, texto } = emailDeAviso(aviso.titulo, aviso.corpo, aviso.url, aviso.rotuloBotao);
+    const { html, texto } = emailDeAviso(aviso.titulo, aviso.corpo, aviso.url);
     const ok = await enviarEmail(rows[0].email, aviso.titulo, html, texto);
     return ok ? 1 : 0;
   } catch (err) {
@@ -194,51 +192,8 @@ export function avisoPrazo(horas: number): Aviso {
     titulo: '⏳ O barco vai zarpar',
     corpo: `Falta${horas === 1 ? '' : 'm'} ${horas} hora${horas === 1 ? '' : 's'} para o barco seguir viagem sem a sua mensagem. Ainda dá tempo.`,
     url: '/receive',
-    rotuloBotao: 'Responder agora',
     tag: 'barco-prazo',
     // Este é o que dói perder — é o último aviso antes de o barco ir embora.
-    porEmail: true,
-  };
-}
-
-/**
- * O barco voltou para casa. O único aviso do app que celebra um fim.
- *
- * Vai por e-mail, e é a exceção que confirma a régra: e-mail é caro em
- * reputação e deve ser raro. Este é raro de verdade — um barco leva semanas ou
- * meses para dar a volta, e até 19/08/2026 isso tinha acontecido UMA vez em
- * toda a história do app. Até então, terminava em silêncio absoluto: o barco
- * atracava, virava quadro no museu, e o dono só descobria se fosse olhar.
- *
- * O tom muda com o motivo, porque as histórias são diferentes. Nau Lendária deu
- * a volta ao mundo; perdido no mar ficou noventa dias sem ninguém pegar. Mandar
- * a mesma frase para os dois seria não ter lido nenhum dos dois.
- */
-export function avisoVoltouParaCasa(d: {
-  motivo: string; paises: number; milhas: number; mensagens: number;
-}): Aviso {
-  const numeros =
-    `${d.paises} ${d.paises === 1 ? 'país' : 'países'}, ` +
-    `${d.milhas.toLocaleString('pt-BR')} milhas náuticas e ` +
-    `${d.mensagens} ${d.mensagens === 1 ? 'mensagem' : 'mensagens'} de estranhos`;
-
-  const abertura: Record<string, string> = {
-    lendaria: 'Ele deu a volta ao mundo e voltou. Nau Lendária — o fim mais alto que uma jornada pode ter.',
-    chamado:  'Você o chamou de volta, e ele atracou.',
-    esgotado: 'O assunto se esgotou pelo caminho e ele voltou para casa.',
-    perdido:  'Ele passou tempo demais sem que ninguém o recolhesse e voltou sozinho.',
-    moderado: 'A jornada foi encerrada pela moderação, e ele voltou para casa.',
-  };
-
-  return {
-    titulo: '⚓ O seu barco voltou para casa',
-    corpo:
-      `${abertura[d.motivo] ?? 'Ele atracou de volta no seu porto.'} ` +
-      `Nesta viagem foram ${numeros}. Tudo o que ele trouxe está guardado — ` +
-      'as palavras, os portos e os presentes.',
-    url: '/museu',
-    rotuloBotao: 'Ver o quadro no Museu',
-    tag: 'barco-em-casa',
     porEmail: true,
   };
 }

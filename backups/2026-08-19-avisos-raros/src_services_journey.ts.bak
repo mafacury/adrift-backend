@@ -14,7 +14,6 @@
  */
 import { pool } from '../db/pool.js';
 import { haversineKm } from './routing.js';
-import { avisar, avisoVoltouParaCasa } from './notify.js';
 
 // A volta é uma travessia DIRETA, com vento a favor — por isso mais rápida
 // que o vaguear porto a porto do routing.ts (20min + km/30, teto de 12h).
@@ -136,37 +135,14 @@ export async function startReturn(
 /** Atraca o barco: arquiva, congela as milhas e libera o baú para o dono. */
 async function archiveBoat(boatId: string): Promise<void> {
   const nm = await totalNauticalMiles(boatId);
-  const { rows } = await pool.query(
+  await pool.query(
     `UPDATE boats
      SET status = 'archived', archived_at = NOW(), total_nm = $2,
          archive_reason = COALESCE(archive_reason, 'perdido')
-     WHERE id = $1
-     RETURNING creator_user_id, archive_reason, unique_countries`,
+     WHERE id = $1`,
     [boatId, nm],
   );
   console.log(`[journey] barco ${boatId} atracou em casa — ${nm} milhas náuticas`);
-
-  // O fim da jornada era o único acontecimento importante do app que passava em
-  // silêncio absoluto: o barco atracava, virava quadro no museu, e o dono só
-  // descobria se fosse olhar. É o desfecho de semanas de viagem — merece ser
-  // contado. Vai sem await: a varredura não pode emperrar por causa de um aviso.
-  const b = rows[0];
-  if (!b?.creator_user_id) return;
-  try {
-    const { rows: m } = await pool.query(
-      `SELECT COUNT(*)::int AS n FROM boat_messages
-        WHERE boat_id = $1 AND user_id <> $2`,
-      [boatId, b.creator_user_id],
-    );
-    void avisar(b.creator_user_id, avisoVoltouParaCasa({
-      motivo: b.archive_reason ?? 'perdido',
-      paises: b.unique_countries ?? 0,
-      milhas: Math.round(nm),
-      mensagens: m[0]?.n ?? 0,
-    }));
-  } catch (err) {
-    console.error(`[journey] falhou ao avisar a volta do barco ${boatId}:`, err);
-  }
 }
 
 /**

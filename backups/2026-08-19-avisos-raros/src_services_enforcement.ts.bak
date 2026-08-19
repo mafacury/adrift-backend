@@ -24,33 +24,6 @@
  */
 import { pool } from '../db/pool.js';
 import { config } from '../config/index.js';
-import { enviarEmail, emailDeBanimento } from './mail.js';
-
-/**
- * Avisa a pessoa de que foi banida, e que o relógio da contestação começou.
- *
- * Os Termos prometem contestação em até 30 dias. Sem este e-mail o prazo corre
- * sem ela saber — e ela só descobre ao tentar entrar, talvez depois dos 30
- * dias. Prometer um direito e não avisar que ele começou a contar é o mesmo que
- * não dar o direito.
- *
- * Vale para os DOIS caminhos de banimento: este automático e o do painel. Nunca
- * lança: banir não pode falhar porque o e-mail falhou.
- */
-export async function avisarBanimento(userId: string): Promise<void> {
-  try {
-    const { rows } = await pool.query(
-      `SELECT email FROM users
-        WHERE id = $1 AND oauth_provider IS DISTINCT FROM 'bot'`,
-      [userId],
-    );
-    if (!rows.length) return;
-    const { assunto, html, texto } = emailDeBanimento();
-    await enviarEmail(rows[0].email, assunto, html, texto);
-  } catch (err) {
-    console.error('[conduta] aviso de banimento falhou para', userId, err);
-  }
-}
 
 /**
  * Chamada depois de cada veredito `rejected`. Nunca lança: é rede de proteção,
@@ -97,7 +70,6 @@ export async function avaliarConduta(userId: string | null): Promise<void> {
         `[conduta] usuário ${userId} BANIDO — ${rejeicoes} rejeições em 24h; ` +
         `${rowCount ?? 0} barco(s) arquivado(s)`,
       );
-      await avisarBanimento(userId);
       return;
     }
 

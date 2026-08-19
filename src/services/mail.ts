@@ -482,19 +482,94 @@ export function emailDeVerificacao(link: string): { assunto: string; html: strin
 }
 
 /**
+ * Confirmação de que a senha mudou.
+ *
+ * Não é aviso de cortesia: é o único momento em que dá para reagir a uma conta
+ * invadida. Quem trocou a senha já sabe que trocou e ignora este e-mail; quem
+ * NÃO trocou descobre agora, enquanto ainda dá tempo.
+ *
+ * Por isso ele não tem botão. O que a pessoa precisa fazer, se não foi ela, é
+ * falar com gente — e o endereço está no rodapé.
+ */
+export function emailSenhaAlterada(quando: Date): { assunto: string; html: string; texto: string } {
+  const assunto = 'A sua senha do Adrift foi alterada';
+  const hora = quando.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+
+  const texto = [
+    `A senha da sua conta no Adrift foi alterada em ${hora} (horário de Brasília).`,
+    '',
+    'Se foi você, não precisa fazer nada.',
+    '',
+    'Se NÃO foi você, alguém teve acesso à sua conta. Escreva para',
+    `${CONTATO} agora — quanto antes, melhor.`,
+  ].join('\n') + rodapeTexto();
+
+  const html = moldar({
+    titulo: 'A sua senha foi alterada',
+    paragrafos: [
+      `A senha da sua conta no Adrift foi alterada em <strong>${hora}</strong> (horário de Brasília).`,
+      'Se foi você, não precisa fazer nada.',
+      `<strong>Se não foi você</strong>, alguém teve acesso à sua conta. Escreva para <a href="mailto:${CONTATO}" style="color:#2E86AB">${CONTATO}</a> agora — quanto antes, melhor.`,
+    ],
+  });
+
+  return { assunto, html, texto };
+}
+
+/**
+ * Aviso de banimento.
+ *
+ * Existe por obrigação do que os Termos prometem: contestação em até 30 dias.
+ * Sem este e-mail o prazo corre sem a pessoa saber, e ela só descobre ao tentar
+ * entrar — talvez depois dos 30 dias. Prometer um direito e não avisar que ele
+ * começou a contar é o mesmo que não dar o direito.
+ *
+ * O tom é seco de propósito. Não é hora de simpatia nem de sermão: é hora de
+ * dizer o que aconteceu, o que fazer, e até quando.
+ */
+export function emailDeBanimento(): { assunto: string; html: string; texto: string } {
+  const assunto = 'A sua conta no Adrift foi suspensa';
+
+  const texto = [
+    'A sua conta no Adrift foi suspensa por violação dos Termos de Uso, e os',
+    'seus barcos pararam de navegar.',
+    '',
+    'Você pode contestar uma vez, em até 30 dias a partir de hoje, escrevendo',
+    `para ${CONTATO} a partir do e-mail desta conta. Uma pessoa analisa o caso`,
+    'e responde.',
+    '',
+    'Se a contestação for aceita, a conta volta como estava. Se não for, a',
+    'decisão é final.',
+  ].join('\n') + rodapeTexto();
+
+  const html = moldar({
+    titulo: 'A sua conta foi suspensa',
+    paragrafos: [
+      'A sua conta no Adrift foi suspensa por violação dos Termos de Uso, e os seus barcos pararam de navegar.',
+      `Você pode contestar <strong>uma vez, em até 30 dias</strong> a partir de hoje, escrevendo para <a href="mailto:${CONTATO}" style="color:#2E86AB">${CONTATO}</a> a partir do e-mail desta conta. Uma pessoa analisa o caso e responde.`,
+      'Se a contestação for aceita, a conta volta como estava. Se não for, a decisão é final.',
+    ],
+  });
+
+  return { assunto, html, texto };
+}
+
+/**
  * O aviso de barco, que antes saía como um parágrafo solto sem moldura.
  *
  * Exportado porque quem o dispara é o notify.ts, e o desenho dos e-mails tem
  * que morar num lugar só — foi por isso que esta moldura existe.
  */
 export function emailDeAviso(
-  titulo: string, corpo: string, url?: string,
+  titulo: string, corpo: string, url?: string, rotuloBotao?: string,
 ): { html: string; texto: string } {
   return {
     html: moldar({
       titulo,
       paragrafos: [corpo],
-      botao: url ? { texto: 'Abrir o Adrift', href: `${APP_URL}${url}` } : undefined,
+      botao: url
+        ? { texto: rotuloBotao ?? 'Abrir o Adrift', href: `${APP_URL}${url}` }
+        : undefined,
     }),
     texto: corpo + (url ? `\n\n${APP_URL}${url}` : '') + rodapeTexto(),
   };
