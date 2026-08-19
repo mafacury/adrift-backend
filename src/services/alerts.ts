@@ -25,20 +25,44 @@
  * vale mais.
  */
 
-/** Manda e, se não alcançou ninguém, devolve a linha para a fila de avisos. */
+import { pool } from '../db/pool.js';
+import { config } from '../config/index.js';
+import { avisar, avisoChegou, avisoPrazo, avisoPerdeu } from './notify.js';
+
+/**
+ * Manda e, se falhou, devolve a linha para a fila de avisos.
+ *
+ * "Falhou" tem duas causas MUITO diferentes, e só uma merece nova tentativa:
+ *
+ *   a pessoa TEM canal e o envio caiu   → tenta de novo, foi coisa passageira
+ *   a pessoa NÃO TEM canal nenhum       → não adianta: a única forma de ganhar
+ *                                         um é assinando dentro do app, e quem
+ *                                         está dentro do app já está vendo o
+ *                                         barco. Reenviar não acrescenta nada.
+ *
+ * A primeira versão disto não separava os dois e remarcava sempre. Resultado
+ * visto em produção em 19/08: seis chegadas sem canal sendo reprocessadas a
+ * cada minuto, sete linhas de log por minuto durante as 12 horas da janela — e
+ * a enxurrada escondendo as linhas que importavam.
+ */
 async function avisarOuDesmarcar(
   userId: string, coluna: string, filaId: string, aviso: Parameters<typeof avisar>[1],
 ): Promise<void> {
   const alcancou = await avisar(userId, aviso);
-  if (alcancou === 0) {
-    await pool.query(
-      `UPDATE receiver_queue SET ${coluna} = NULL WHERE id = $1`, [filaId],
-    );
-  }
+  if (alcancou > 0) return;
+
+  const { rows } = await pool.query(
+    `SELECT (u.fcm_token IS NOT NULL)
+          OR EXISTS (SELECT 1 FROM push_subscriptions s WHERE s.user_id = u.id) AS tem_canal
+       FROM users u WHERE u.id = $1`,
+    [userId],
+  );
+  if (!rows[0]?.tem_canal) return;   // sem canal: marca fica, e acabou
+
+  await pool.query(
+    `UPDATE receiver_queue SET ${coluna} = NULL WHERE id = $1`, [filaId],
+  );
 }
-import { pool } from '../db/pool.js';
-import { config } from '../config/index.js';
-import { avisar, avisoChegou, avisoPrazo, avisoPerdeu } from './notify.js';
 
 /** O barco atracou agora. */
 export async function avisarChegadas(): Promise<void> {
@@ -49,10 +73,13 @@ export async function avisarChegadas(): Promise<void> {
       `UPDATE receiver_queue
           SET avisado_chegada_at = NOW()
         WHERE id IN (
-          SELECT id FROM receiver_queue
+          SELECT id FROM receiver_queue q
            WHERE status = 'pending'
              AND avisado_chegada_at IS NULL
              AND arrives_at <= NOW()
+             AND EXISTS (SELECT 1 FROM users u
+                          WHERE u.id = q.user_id
+                            AND u.oauth_provider IS DISTINCT FROM 'bot')
            LIMIT 200
         )
       RETURNING id, user_id`,
@@ -74,8 +101,11 @@ export async function avisarPrazo(): Promise<void> {
       `UPDATE receiver_queue
           SET avisado_prazo_at = NOW()
         WHERE id IN (
-          SELECT id FROM receiver_queue
+          SELECT id FROM receiver_queue q
            WHERE status = 'pending'
+             AND EXISTS (SELECT 1 FROM users u
+                          WHERE u.id = q.user_id
+                            AND u.oauth_provider IS DISTINCT FROM 'bot')
              AND avisado_prazo_at IS NULL
              AND arrives_at <= NOW()
              AND expires_at <= NOW() + ($1 || ' hours')::INTERVAL
@@ -108,8 +138,11 @@ export async function avisarPerdas(): Promise<void> {
       `UPDATE receiver_queue
           SET avisado_perda_at = NOW()
         WHERE id IN (
-          SELECT id FROM receiver_queue
+          SELECT id FROM receiver_queue q
            WHERE status = 'expired'
+             AND EXISTS (SELECT 1 FROM users u
+                          WHERE u.id = q.user_id
+                            AND u.oauth_provider IS DISTINCT FROM 'bot')
              AND avisado_perda_at IS NULL
              AND avisado_chegada_at IS NOT NULL   -- só quem chegou a ter o barco
              AND expires_at > NOW() - INTERVAL '2 hours'
