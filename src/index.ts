@@ -132,6 +132,15 @@ app.get('/health', async () => ({
   status: 'ok',
   desde: SUBIU_EM,
   commit: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? 'desconhecido',
+  // Quais canais de aviso estão de pé. Sem isto, descobrir que o e-mail está
+  // desligado exige caçar uma linha no log — e foi o que aconteceu em 19/08,
+  // com a busca ainda por cima soterrada por avisos repetidos. Nenhum segredo
+  // sai daqui: só o NOME do caminho, nunca chave nem senha.
+  canais: {
+    email: smtpLigado() ? 'smtp' : (process.env.RESEND_API_KEY ? 'resend' : 'desligado'),
+    remetente: process.env.MAIL_FROM ?? '(padrão)',
+    webpush: webPushLigado(),
+  },
 }));
 
 /**
