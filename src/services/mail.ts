@@ -82,6 +82,39 @@ function pegarTransporte(): Transporter {
   return transporte;
 }
 
+/**
+ * Testa a conexão e a SENHA, uma vez, no boot.
+ *
+ * Sem isto, "a senha do SMTP está errada" só aparece quando alguém pede
+ * recuperação de senha — e mesmo assim escondido no log, porque a resposta ao
+ * usuário é neutra de propósito. Foi o que aconteceu em 19/08: três envios
+ * tentados, nenhum chegou, e nada na tela dizia por quê.
+ *
+ * `verify()` do nodemailer abre a conexão, autentica e desliga. Se a senha
+ * estiver errada, o erro é `EAUTH`.
+ */
+export type EstadoSmtp = 'nao-configurado' | 'ok' | 'falha';
+let estadoSmtp: EstadoSmtp = 'nao-configurado';
+let motivoSmtp = '';
+
+export function estadoDoSmtp(): { estado: EstadoSmtp; motivo: string } {
+  return { estado: estadoSmtp, motivo: motivoSmtp };
+}
+
+export async function conferirSmtp(): Promise<void> {
+  if (!smtpLigado()) { estadoSmtp = 'nao-configurado'; return; }
+  try {
+    await pegarTransporte().verify();
+    estadoSmtp = 'ok';
+    motivoSmtp = '';
+    console.log(`[mail] SMTP autenticado em ${process.env.SMTP_HOST} como ${process.env.SMTP_USER}`);
+  } catch (e: any) {
+    estadoSmtp = 'falha';
+    motivoSmtp = `${e?.code ?? 'erro'}: ${String(e?.message ?? e).slice(0, 160)}`;
+    console.error(`[mail] SMTP NAO AUTENTICOU — ${motivoSmtp}`);
+  }
+}
+
 export async function enviarEmail(
   para: string, assunto: string, html: string, texto: string,
 ): Promise<boolean> {

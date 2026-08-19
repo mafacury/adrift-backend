@@ -13,7 +13,7 @@ import { pool } from './db/pool.js';
 import { ensureBots } from './services/bots.js';
 import { captchaLigado } from './services/captcha.js';
 import { webPushLigado } from './services/notify.js';
-import { envioRealLigado, smtpLigado } from './services/mail.js';
+import { envioRealLigado, smtpLigado, conferirSmtp, estadoDoSmtp } from './services/mail.js';
 
 const app = Fastify({ logger: true, trustProxy: true });
 
@@ -138,6 +138,9 @@ app.get('/health', async () => ({
   // sai daqui: só o NOME do caminho, nunca chave nem senha.
   canais: {
     email: smtpLigado() ? 'smtp' : (process.env.RESEND_API_KEY ? 'resend' : 'desligado'),
+    // Resultado do teste de autenticação feito no boot: 'ok' quer dizer que a
+    // senha foi aceita pelo servidor de e-mail, não que a mensagem chegou.
+    smtp: estadoDoSmtp(),
     remetente: process.env.MAIL_FROM ?? '(padrão)',
     webpush: webPushLigado(),
   },
@@ -165,6 +168,10 @@ if (!webPushLigado()) {
 } else {
   console.log(`[avisos] web push ligado · aviso de prazo ${config.push.avisoPrazoHoras}h antes de zarpar`);
 }
+// Confere a senha do SMTP agora, e não na primeira vez que alguem esquecer a
+// senha. Vai sem await: se o servidor de e-mail estiver lento, o app sobe assim
+// mesmo e /health conta o resultado quando ele chegar.
+void conferirSmtp();
 if (envioRealLigado()) {
   console.log(`[avisos] e-mail ligado por ${smtpLigado() ? 'SMTP (' + process.env.SMTP_HOST + ')' : 'Resend'}`);
 } else {
