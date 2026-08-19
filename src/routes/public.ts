@@ -73,11 +73,17 @@ export async function publicRoutes(app: FastifyInstance) {
       return reply.code(404).type('text/html; charset=utf-8').send(pagina404());
     }
 
+    // Ordem CRONOLÓGICA de primeira visita, não alfabética: a lista conta a
+    // rota que o barco fez. `DISTINCT ON` obriga a ordenar pela chave primeiro,
+    // então a reordenação por data acontece do lado de fora.
     const { rows: portos } = await pool.query(
-      `SELECT DISTINCT ON (h.country_code) h.country_code, c.name_pt
-         FROM boat_hops h LEFT JOIN countries c ON c.code = h.country_code
-        WHERE h.boat_id = $1
-        ORDER BY h.country_code, h.hopped_at ASC`,
+      `SELECT country_code, name_pt FROM (
+         SELECT DISTINCT ON (h.country_code)
+                h.country_code, c.name_pt, h.hopped_at
+           FROM boat_hops h LEFT JOIN countries c ON c.code = h.country_code
+          WHERE h.boat_id = $1
+          ORDER BY h.country_code, h.hopped_at ASC
+       ) x ORDER BY x.hopped_at ASC`,
       [id],
     );
 
@@ -132,9 +138,18 @@ function paginaJornada(d: Dados): string {
         <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#7A96A8;margin-top:4px">${rot}</div>
       </div>`;
 
+  // Teto de fichas. Um barco veterano passa de cem países, e cem fichas viram
+  // uma parede que ninguém lê — o número grande lá em cima já disse quantos são.
+  const TETO = 40;
+  const ficha = (p: string) => `<span style="display:inline-block;background:rgba(23,69,107,.08);
+      color:#17456B;border-radius:20px;padding:5px 12px;margin:0 5px 7px 0;font-size:12.5px">${esc(p)}</span>`;
+  const sobra = d.portos.length - TETO;
   const listaPortos = d.portos.length
-    ? d.portos.map((p) => `<span style="display:inline-block;background:rgba(23,69,107,.08);color:#17456B;
-        border-radius:20px;padding:5px 12px;margin:0 5px 7px 0;font-size:12.5px">${esc(p)}</span>`).join('')
+    ? d.portos.slice(0, TETO).map(ficha).join('') +
+      (sobra > 0
+        ? `<span style="display:inline-block;color:#7A96A8;font-size:12.5px;padding:5px 4px">
+             e mais ${sobra} ${sobra === 1 ? 'país' : 'países'}</span>`
+        : '')
     : '<span style="color:#7A96A8;font-size:13px">Ainda sem portos registrados.</span>';
 
   return `<!doctype html>
