@@ -28,7 +28,7 @@
  */
 import { FastifyInstance } from 'fastify';
 import { pool } from '../db/pool.js';
-import { REASON_LABEL, ArchiveReason } from '../services/journey.js';
+import { REASON_LABEL, ArchiveReason, totalNauticalMiles } from '../services/journey.js';
 
 const APP_URL = process.env.APP_URL ?? 'https://adriftapp.fun';
 
@@ -81,6 +81,14 @@ export async function publicRoutes(app: FastifyInstance) {
       [id],
     );
 
+    // `total_nm` só é congelado quando o barco atraca em casa. Para quem ainda
+    // navega ele é nulo, e a página mostrava "0 milhas náuticas" ao lado de
+    // "195 países" — um número que desmente o outro na mesma linha. Calcula na
+    // hora, com a mesma conta do fim da jornada.
+    const milhas = Number(b.total_nm) > 0
+      ? Number(b.total_nm)
+      : await totalNauticalMiles(id);
+
     const dias = Math.max(1, Math.round(
       ((b.archived_at ? new Date(b.archived_at) : new Date()).getTime()
         - new Date(b.created_at).getTime()) / 86_400_000,
@@ -95,14 +103,14 @@ export async function publicRoutes(app: FastifyInstance) {
     const titulo = `Barco #${codigo} — ${b.unique_countries} ${b.unique_countries === 1 ? 'país' : 'países'}`;
     const resumo =
       `${dias} ${dias === 1 ? 'dia' : 'dias'} no mar, ` +
-      `${Number(b.total_nm ?? 0).toLocaleString('pt-BR')} milhas náuticas e ` +
+      `${milhas.toLocaleString('pt-BR')} milhas náuticas e ` +
       `${b.escreveram} ${b.escreveram === 1 ? 'pessoa que escreveu' : 'pessoas que escreveram'}.`;
 
     return reply.type('text/html; charset=utf-8').send(
       paginaJornada({
         titulo, resumo, codigo, modelo, selo, emCasa, dias,
         paises: b.unique_countries ?? 0,
-        milhas: Number(b.total_nm ?? 0),
+        milhas,
         escreveram: b.escreveram ?? 0,
         presentes: b.presentes ?? 0,
         portos: portos.map((p) => p.name_pt || p.country_code),
