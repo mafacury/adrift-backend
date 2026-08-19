@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "tsc && node scripts-copiar-locales.mjs",
     "start": "node dist/db/migrate.js && node dist/index.js",
     "migrate": "tsx src/db/migrate.ts",
     "seed:bots": "tsx src/scripts/seed-bots.ts"

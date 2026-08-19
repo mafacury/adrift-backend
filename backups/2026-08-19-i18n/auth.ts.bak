@@ -6,7 +6,6 @@ import { countryFromIp } from '../services/geo.js';
 import { enviarEmail, emailDeRecuperacao, emailDeVerificacao, emailSenhaAlterada, emailDeBoasVindas } from '../services/mail.js';
 import { verificarCaptcha } from '../services/captcha.js';
 import { config } from '../config/index.js';
-import { idiomaSuportado } from '../services/i18n.js';
 
 interface RegisterBody {
   email: string;
@@ -17,14 +16,6 @@ interface RegisterBody {
   terms_version: string;
   /** Turnstile. Só exigido quando TURNSTILE_SECRET está configurada. */
   captcha_token?: string;
-  /**
-   * Idioma do aparelho de quem se cadastra.
-   *
-   * O app detecta e manda. É o que permite ao SERVIDOR falar a língua certa
-   * depois — e-mail e push saem quando o app está fechado, e aí não há
-   * navegador nenhum a quem perguntar.
-   */
-  lang?: string;
 }
 
 interface LoginBody {
@@ -127,7 +118,6 @@ export async function authRoutes(app: FastifyInstance) {
             accept_terms:  { type: 'boolean' },
             terms_version: { type: 'string', minLength: 1, maxLength: 40 },
             captcha_token: { type: 'string', maxLength: 4000 },
-            lang:          { type: 'string', maxLength: 8 },
           },
         },
       },
@@ -136,7 +126,7 @@ export async function authRoutes(app: FastifyInstance) {
       config: { rateLimit: { max: config.antispam.rateLimitAuthMax, timeWindow: '1 minute' } },
     },
     async (req: FastifyRequest<{ Body: RegisterBody }>, reply: FastifyReply) => {
-      const { email, password, accept_terms, terms_version, captcha_token, lang } = req.body;
+      const { email, password, accept_terms, terms_version, captcha_token } = req.body;
 
       // CAPTCHA antes de qualquer coisa cara: sem chave configurada isto passa
       // direto (e o boot avisa). Fica ANTES do bcrypt de propósito — não faz
@@ -169,11 +159,10 @@ export async function authRoutes(app: FastifyInstance) {
 
       const { rows } = await pool.query(
         `INSERT INTO users (email, password_hash, country_code,
-                            terms_accepted_at, terms_version, lang)
-         VALUES ($1, $2, $3, NOW(), $4, $5)
+                            terms_accepted_at, terms_version)
+         VALUES ($1, $2, $3, NOW(), $4)
          RETURNING id, email, created_at`,
-        [email.toLowerCase(), passwordHash, countryCode, terms_version,
-         idiomaSuportado(lang)],
+        [email.toLowerCase(), passwordHash, countryCode, terms_version],
       );
       const user = rows[0];
 
