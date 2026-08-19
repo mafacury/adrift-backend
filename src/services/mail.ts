@@ -43,6 +43,7 @@
  * em algum lugar em vez de receber devolução.
  */
 import nodemailer, { type Transporter } from 'nodemailer';
+import { promises as dns } from 'node:dns';
 
 const RESEND_URL = 'https://api.resend.com/emails';
 
@@ -62,23 +63,51 @@ export function envioRealLigado(): boolean {
  * desde que o objeto seja o mesmo.
  */
 let transporte: Transporter | null = null;
-function pegarTransporte(): Transporter {
-  if (!transporte) {
-    const porta = parseInt(process.env.SMTP_PORT ?? '465', 10);
-    transporte = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: porta,
-      secure: porta === 465,          // 465 = TLS direto; 587 = STARTTLS
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-      pool: true,
-      maxConnections: 2,
-      // O envio nunca pode segurar uma requisição do app. Se o servidor de
-      // e-mail estiver lento, desiste e o chamador segue a vida.
-      connectionTimeout: 10_000,
-      greetingTimeout: 10_000,
-      socketTimeout: 20_000,
-    });
+let criadoEm = 0;
+const VIDA_DO_TRANSPORTE = 60 * 60 * 1000;   // 1h: o IP do provedor pode mudar
+
+/**
+ * Conecta pelo IPv4, explicitamente.
+ *
+ * `smtp.hostinger.com` responde nos dois protocolos, e o contêiner do Railway
+ * escolhia o IPv6 — para onde ele não tem rota. O erro em produção foi
+ * `ESOCKET: connect ENETUNREACH 2606:4700:90:...:465`, e a senha nunca chegou a
+ * ser testada: a conexão morria antes do login.
+ *
+ * O nodemailer pula a resolução quando o host já é um IP (lib/shared, em
+ * `resolveHostname`), então resolvemos aqui e passamos o endereço. `servername`
+ * mantém o SNI e a validação do certificado pelo NOME — sem ele, o TLS falharia
+ * por não bater com o IP.
+ */
+async function pegarTransporte(): Promise<Transporter> {
+  const nome = process.env.SMTP_HOST!;
+  if (transporte && Date.now() - criadoEm < VIDA_DO_TRANSPORTE) return transporte;
+
+  let alvo = nome;
+  try {
+    const v4 = await dns.resolve4(nome);
+    if (v4.length) alvo = v4[0];
+  } catch {
+    // Sem resposta A: segue pelo nome. Pior que isso só não tentar.
   }
+
+  if (transporte) transporte.close();
+  const porta = parseInt(process.env.SMTP_PORT ?? '465', 10);
+  transporte = nodemailer.createTransport({
+    host: alvo,
+    servername: nome,               // SNI: o certificado é do NOME, não do IP
+    port: porta,
+    secure: porta === 465,          // 465 = TLS direto; 587 = STARTTLS
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    pool: true,
+    maxConnections: 2,
+    // O envio nunca pode segurar uma requisição do app. Se o servidor de
+    // e-mail estiver lento, desiste e o chamador segue a vida.
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 20_000,
+  } as any);
+  criadoEm = Date.now();
   return transporte;
 }
 
@@ -104,7 +133,7 @@ export function estadoDoSmtp(): { estado: EstadoSmtp; motivo: string } {
 export async function conferirSmtp(): Promise<void> {
   if (!smtpLigado()) { estadoSmtp = 'nao-configurado'; return; }
   try {
-    await pegarTransporte().verify();
+    await (await pegarTransporte()).verify();
     estadoSmtp = 'ok';
     motivoSmtp = '';
     console.log(`[mail] SMTP autenticado em ${process.env.SMTP_HOST} como ${process.env.SMTP_USER}`);
@@ -124,7 +153,7 @@ export async function enviarEmail(
   // ── Saída 1: SMTP do próprio domínio ──────────────────────────────────────
   if (smtpLigado()) {
     try {
-      const info = await pegarTransporte().sendMail({
+      const info = await (await pegarTransporte()).sendMail({
         from: de, to: para, subject: assunto, html, text: texto,
       });
       console.log(`[mail] enviado por SMTP para ${para} (${info.messageId})`);
