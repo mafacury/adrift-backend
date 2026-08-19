@@ -13,7 +13,7 @@ import { pool } from './db/pool.js';
 import { ensureBots } from './services/bots.js';
 import { captchaLigado } from './services/captcha.js';
 import { webPushLigado } from './services/notify.js';
-import { envioRealLigado, smtpLigado, conferirSmtp, estadoDoSmtp, sondaDePortas } from './services/mail.js';
+import { envioRealLigado, smtpLigado, conferirSmtp, estadoDoSmtp, sondaDePortas, conferirResend, estadoDoResend } from './services/mail.js';
 
 const app = Fastify({ logger: true, trustProxy: true });
 
@@ -142,6 +142,7 @@ app.get('/health', async () => ({
     // senha foi aceita pelo servidor de e-mail, não que a mensagem chegou.
     smtp: estadoDoSmtp(),
     portas: sondaDePortas() || undefined,
+    resend: estadoDoResend(),
     remetente: process.env.MAIL_FROM ?? '(padrão)',
     webpush: webPushLigado(),
   },
@@ -173,6 +174,7 @@ if (!webPushLigado()) {
 // senha. Vai sem await: se o servidor de e-mail estiver lento, o app sobe assim
 // mesmo e /health conta o resultado quando ele chegar.
 void conferirSmtp();
+void conferirResend();
 if (envioRealLigado()) {
   console.log(`[avisos] e-mail ligado por ${smtpLigado() ? 'SMTP (' + process.env.SMTP_HOST + ')' : 'Resend'}`);
 } else {

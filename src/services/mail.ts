@@ -3,44 +3,50 @@
  *
  * Uma porta com TRÊS saídas, tentadas nesta ordem:
  *
- *   COM `SMTP_HOST`       manda pelo servidor de e-mail do próprio domínio
- *                         (Hostinger). É o caminho escolhido — ver abaixo.
- *   COM `RESEND_API_KEY`  manda pela API do Resend, sem biblioteca.
+ *   COM `SMTP_HOST`       servidor de e-mail do próprio domínio (Hostinger).
+ *                         NÃO FUNCIONA NO RAILWAY — ver abaixo.
+ *   COM `RESEND_API_KEY`  API do Resend, por HTTPS. É o caminho que funciona.
  *   SEM nenhum dos dois   escreve o e-mail no log do servidor, inteiro, com o
  *                         link clicável.
  *
  * A terceira saída não é preguiça: é o que permite testar o fluxo sem gastar
  * cota nem mandar mensagem para ninguém de verdade.
  *
- * ── Por que SMTP e não Resend ───────────────────────────────────────────────
+ * ── A história, porque ela se repete ────────────────────────────────────────
  *
- * A conta era do Resend até 18/08/2026, quando conferi o DNS de adriftapp.fun e
- * descobri que ele JÁ ESTAVA pronto para enviar:
+ * Em 18/08/2026 troquei Resend por SMTP ao descobrir que o DNS de adriftapp.fun
+ * já estava pronto para enviar pela Hostinger:
  *
  *   SPF    v=spf1 include:_spf.mail.hostinger.com ~all
  *   DKIM   hostingermail-a._domainkey  (chave publicada)
  *   DMARC  v=DMARC1; p=none
  *
- * Eu vinha dizendo que "o trabalho de verdade é o DNS, e é igual nos dois
- * caminhos". Não era: pela Hostinger estava feito, pelo Resend faltariam três
- * registros novos e uma conta. Autenticação de e-mail é o que separa "chega" de
- * "cai no spam", e ela já existia — só de um lado.
+ * O raciocínio estava certo e a conclusão errada, porque eu olhei só uma ponta
+ * da conexão. No dia seguinte, com o SMTP configurado e nenhum e-mail chegando,
+ * a sonda de portas rodada de DENTRO do contêiner deu isto:
  *
- * O Resend continua aqui, inteiro. Se um dia o volume crescer (a Hostinger
- * limita bem mais que os 3.000/mês do plano grátis dele) ou a entrega piorar,
- * basta configurar a chave: `SMTP_HOST` vazio e ele assume, sem tocar em código.
+ *   172.65.255.143 → 465:timeout 587:timeout 25:timeout | controle 443:abre
+ *
+ * O Railway BLOQUEIA a saída em todas as portas de SMTP, como quase todo PaaS
+ * faz para não virar fonte de spam. A saída de rede funciona (443 abre); só
+ * e-mail não passa. Nenhuma senha, porta ou ajuste de DNS resolve isso — é por
+ * isso que serviço de e-mail transacional fala HTTPS.
+ *
+ * A lição, que vale além de e-mail: antes de escolher um protocolo, ver se o
+ * lugar onde o código roda deixa ele sair.
+ *
+ * O SMTP fica aqui inteiro, e funcionaria numa VPS ou em qualquer host que não
+ * bloqueie a porta. No Railway, use Resend.
  *
  * PARA LIGAR (no Railway):
- *   SMTP_HOST=smtp.hostinger.com
- *   SMTP_PORT=465
- *   SMTP_USER=contact@adriftapp.fun
- *   SMTP_PASS=<a senha da caixa>
+ *   RESEND_API_KEY=re_...
  *   MAIL_FROM=Adrift <contact@adriftapp.fun>
  *
- * O remetente PRECISA ser a mesma caixa do SMTP_USER: a Hostinger recusa enviar
- * em nome de endereço que não seja o autenticado. E usar a caixa de verdade
- * como remetente tem uma vantagem sobre um `nao-responda@`: quem responder cai
- * em algum lugar em vez de receber devolução.
+ * Enquanto o domínio não estiver verificado no Resend, ele só entrega para o
+ * e-mail dono da conta e exige remetente onboarding@resend.dev. Verificar o
+ * domínio (menu Domains) libera o remetente próprio — e aí `contact@` vale,
+ * com a vantagem sobre um `nao-responda@` de que quem responder cai numa caixa
+ * que existe de verdade, na Hostinger.
  */
 import nodemailer, { type Transporter } from 'nodemailer';
 import { promises as dns } from 'node:dns';
@@ -183,10 +189,70 @@ export async function conferirSmtp(): Promise<void> {
   }
 }
 
+/**
+ * Testa a chave do Resend no boot, sem mandar e-mail nenhum.
+ *
+ * Pergunta a lista de domínios da conta — chamada barata e sem efeito. Se a
+ * chave estiver errada, volta 401 e ficamos sabendo antes de alguém precisar
+ * dela.
+ *
+ * O caso que motivou isto: chave colada COM ASPAS num painel de variáveis. Ela
+ * "parece" certa a olho nu e o valor real vira `"re_..."`, com as aspas dentro.
+ * O cabeçalho sai como `Bearer "re_..."` e o servidor recusa. Por isso o
+ * diagnóstico também diz se a chave tem aspas ou espaços em volta: é um erro
+ * invisível de outra forma.
+ */
+export type EstadoResend = 'nao-configurado' | 'ok' | 'falha';
+let estadoResend: EstadoResend = 'nao-configurado';
+let motivoResend = '';
+
+export function estadoDoResend(): { estado: EstadoResend; motivo: string } {
+  return { estado: estadoResend, motivo: motivoResend };
+}
+
+export async function conferirResend(): Promise<void> {
+  const bruta = process.env.RESEND_API_KEY;
+  if (!bruta) { estadoResend = 'nao-configurado'; return; }
+
+  const suja = bruta !== bruta.trim() || /^["']|["']$/.test(bruta.trim());
+  const chave = limparChave(bruta);
+
+  try {
+    const r = await fetch('https://api.resend.com/domains', {
+      headers: { Authorization: `Bearer ${chave}` },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (r.ok) {
+      estadoResend = 'ok';
+      motivoResend = suja ? 'chave aceita (tinha aspas/espaços — foram removidos)' : '';
+      console.log(`[mail] Resend autenticado${suja ? ' (a chave veio com aspas; limpei)' : ''}`);
+    } else {
+      estadoResend = 'falha';
+      motivoResend = `HTTP ${r.status}${suja ? ' — a chave veio com aspas/espaços' : ''}`;
+      console.error(`[mail] Resend NAO autenticou — ${motivoResend}`);
+    }
+  } catch (e: any) {
+    estadoResend = 'falha';
+    motivoResend = String(e?.message ?? e).slice(0, 120);
+    console.error(`[mail] Resend: ${motivoResend}`);
+  }
+}
+
+/**
+ * Tira aspas e espaços que vêm de copiar e colar em painel de variáveis.
+ *
+ * Não é paranoia: Railway e afins guardam o valor LITERAL, então aspas digitadas
+ * viram parte da chave. Melhor aceitar o descuido do que falhar em silêncio por
+ * causa de dois caracteres.
+ */
+function limparChave(v: string): string {
+  return v.trim().replace(/^["']|["']$/g, '').trim();
+}
+
 export async function enviarEmail(
   para: string, assunto: string, html: string, texto: string,
 ): Promise<boolean> {
-  const chave = process.env.RESEND_API_KEY;
+  const chave = process.env.RESEND_API_KEY ? limparChave(process.env.RESEND_API_KEY) : undefined;
   const de = process.env.MAIL_FROM ?? 'Adrift <onboarding@resend.dev>';
 
   // ── Saída 1: SMTP do próprio domínio ──────────────────────────────────────
