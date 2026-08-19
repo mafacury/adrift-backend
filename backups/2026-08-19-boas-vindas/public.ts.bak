@@ -29,8 +29,6 @@
 import { FastifyInstance } from 'fastify';
 import { pool } from '../db/pool.js';
 import { REASON_LABEL, ArchiveReason, totalNauticalMiles } from '../services/journey.js';
-import { COUNTRY_LANG } from '../services/country-data.js';
-import { GIFTS } from '../services/gifts.js';
 
 const APP_URL = process.env.APP_URL ?? 'https://adriftapp.fun';
 
@@ -89,33 +87,6 @@ export async function publicRoutes(app: FastifyInstance) {
       [id],
     );
 
-    // A mensagem inicial é do DONO do barco — as palavras dele, publicadas por
-    // ele. É a única frase que a página pode mostrar sem pedir licença a
-    // ninguém, e é a que dá contexto a todo o resto.
-    const { rows: inicial } = await pool.query(
-      `SELECT m.content, c.name_pt AS pais
-         FROM boat_messages m
-         JOIN boats b ON b.id = m.boat_id
-         LEFT JOIN countries c ON c.code = m.country_code
-        WHERE m.boat_id = $1 AND m.user_id = b.creator_user_id
-        ORDER BY m.created_at ASC LIMIT 1`,
-      [id],
-    );
-
-    // Quantos idiomas o barco atravessou. Textura de verdade sem publicar
-    // palavra de ninguém: o número vem do país de cada porto, não do conteúdo.
-    const idiomas = new Set(
-      portos.map((p) => COUNTRY_LANG[p.country_code]).filter(Boolean),
-    ).size;
-
-    // Presentes deixados a bordo — são objetos, não palavras.
-    const { rows: presentes } = await pool.query(
-      `SELECT gift_id, COUNT(*)::int AS quantos
-         FROM boat_messages WHERE boat_id = $1 AND gift_id IS NOT NULL
-        GROUP BY gift_id ORDER BY quantos DESC LIMIT 8`,
-      [id],
-    );
-
     // `total_nm` só é congelado quando o barco atraca em casa. Para quem ainda
     // navega ele é nulo, e a página mostrava "0 milhas náuticas" ao lado de
     // "195 países" — um número que desmente o outro na mesma linha. Calcula na
@@ -147,16 +118,8 @@ export async function publicRoutes(app: FastifyInstance) {
         paises: b.unique_countries ?? 0,
         milhas,
         escreveram: b.escreveram ?? 0,
+        presentes: b.presentes ?? 0,
         portos: portos.map((p) => p.name_pt || p.country_code),
-        idiomas,
-        inicial: inicial[0]
-          ? { texto: inicial[0].content as string, pais: (inicial[0].pais as string) ?? null }
-          : null,
-        presentes: presentes.map((g) => ({
-          nome: GIFTS[g.gift_id]?.name ?? g.gift_id,
-          emoji: GIFTS[g.gift_id]?.emoji ?? '🎁',
-          quantos: g.quantos as number,
-        })),
       }),
     );
   });
@@ -165,10 +128,7 @@ export async function publicRoutes(app: FastifyInstance) {
 interface Dados {
   titulo: string; resumo: string; codigo: string; modelo: string; selo: string;
   emCasa: boolean; dias: number; paises: number; milhas: number;
-  escreveram: number; portos: string[]; idiomas: number;
-  /** A frase com que o dono soltou o barco. As palavras dele. */
-  inicial: { texto: string; pais: string | null } | null;
-  presentes: { nome: string; emoji: string; quantos: number }[];
+  escreveram: number; presentes: number; portos: string[];
 }
 
 function paginaJornada(d: Dados): string {
@@ -225,25 +185,12 @@ function paginaJornada(d: Dados): string {
              color:${d.emCasa ? '#1E7A44' : '#2E86AB'};font-size:12px;font-weight:600">${esc(d.selo)}</div>
       </div>
 
-      ${d.inicial ? `
-      <div style="background:rgba(23,69,107,.05);border-left:3px solid #2E86AB;
-           border-radius:0 10px 10px 0;padding:14px 16px;margin-bottom:20px">
-        <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#7A96A8;margin-bottom:6px">
-          A mensagem que soltou este barco
-        </div>
-        <div style="font-size:15px;line-height:23px;color:#17456B;font-style:italic">
-          &ldquo;${esc(d.inicial.texto)}&rdquo;
-        </div>
-        ${d.inicial.pais ? `<div style="font-size:12px;color:#7A96A8;margin-top:7px">— de ${esc(d.inicial.pais)}</div>` : ''}
-      </div>` : ''}
-
       <div style="display:flex;justify-content:space-around;flex-wrap:wrap;gap:14px 0;
            padding:18px 0;border-top:1px solid rgba(23,69,107,.12);border-bottom:1px solid rgba(23,69,107,.12)">
         ${numero(d.paises, 'países')}
         ${numero(d.milhas, 'milhas náuticas')}
         ${numero(d.dias, d.dias === 1 ? 'dia no mar' : 'dias no mar')}
         ${numero(d.escreveram, 'escreveram')}
-        ${d.idiomas > 1 ? numero(d.idiomas, 'idiomas') : ''}
       </div>
 
       <p style="margin:20px 0 10px;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:#7A96A8">
@@ -251,18 +198,10 @@ function paginaJornada(d: Dados): string {
       </p>
       <div>${listaPortos}</div>
 
-      ${d.presentes.length ? `
-      <p style="margin:22px 0 10px;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:#7A96A8">
-        Deixaram a bordo
-      </p>
-      <div>${d.presentes.map((g) => `<span style="display:inline-block;background:rgba(245,197,24,.14);
-        color:#8A6A10;border-radius:20px;padding:5px 12px;margin:0 5px 7px 0;font-size:12.5px">
-        ${esc(g.emoji)} ${esc(g.nome)}${g.quantos > 1 ? ` ×${g.quantos}` : ''}</span>`).join('')}</div>` : ''}
-
       <p style="margin:22px 0 0;font-size:13px;line-height:20px;color:#5A7185;
          padding-top:16px;border-top:1px solid rgba(23,69,107,.12)">
-        As outras ${d.escreveram} mensagens ficam com o barco. Elas foram escritas
-        para quem o encontrasse no mar — e só se publica palavra de quem disse que pode.
+        As palavras que este barco carrega ficam com ele. Só quem o recebe pelo
+        mar é que lê — nem aqui, nem em lugar nenhum, elas são publicadas.
       </p>
 
     </div>
