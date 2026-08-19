@@ -218,18 +218,29 @@ export async function conferirResend(): Promise<void> {
   const chave = limparChave(bruta);
 
   try {
-    const r = await fetch('https://api.resend.com/domains', {
-      headers: { Authorization: `Bearer ${chave}` },
+    // POST vazio em /emails, de propósito. O Resend autentica ANTES de validar
+    // o corpo, então as respostas se separam de forma limpa:
+    //
+    //   401  chave inválida
+    //   422  chave VÁLIDA — só faltaram os campos, e nenhum e-mail foi enviado
+    //
+    // A tentativa anterior perguntava a lista de domínios, que exige permissão
+    // de conta inteira. Uma chave criada com "Sending access" — que é a certa,
+    // pela menor permissão possível — era recusada ali mesmo estando boa.
+    const r = await fetch(RESEND_URL, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${chave}`, 'Content-Type': 'application/json' },
+      body: '{}',
       signal: AbortSignal.timeout(8000),
     });
-    if (r.ok) {
+    if (r.status === 401 || r.status === 403) {
+      estadoResend = 'falha';
+      motivoResend = `HTTP ${r.status} — chave recusada${suja ? ' (veio com aspas/espaços)' : ''}`;
+      console.error(`[mail] Resend NAO autenticou — ${motivoResend}`);
+    } else {
       estadoResend = 'ok';
       motivoResend = suja ? 'chave aceita (tinha aspas/espaços — foram removidos)' : '';
       console.log(`[mail] Resend autenticado${suja ? ' (a chave veio com aspas; limpei)' : ''}`);
-    } else {
-      estadoResend = 'falha';
-      motivoResend = `HTTP ${r.status}${suja ? ' — a chave veio com aspas/espaços' : ''}`;
-      console.error(`[mail] Resend NAO autenticou — ${motivoResend}`);
     }
   } catch (e: any) {
     estadoResend = 'falha';
