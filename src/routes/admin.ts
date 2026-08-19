@@ -44,6 +44,7 @@ export async function adminRoutes(app: FastifyInstance) {
         `SELECT
            u.id, u.email, u.country_code, u.reputation_score,
            u.ban_status, u.role, u.created_at, u.last_active_at,
+           u.email_verified,
            (SELECT COUNT(*)::int FROM boats WHERE creator_user_id = u.id) AS boat_count
          FROM users u
          WHERE ($1::text IS NULL OR u.email ILIKE '%' || $1 || '%')
@@ -65,11 +66,33 @@ export async function adminRoutes(app: FastifyInstance) {
   );
 
   // ── PATCH /admin/users/:id ─────────────────────────────────────────────────
-  app.patch<{ Params: { id: string }; Body: { ban_status?: string; role?: string } }>(
+  app.patch<{
+    Params: { id: string };
+    Body: { ban_status?: string; role?: string; email_verified?: boolean };
+  }>(
     '/admin/users/:id',
     async (req, reply) => {
       const { id } = req.params;
-      const { ban_status, role } = req.body ?? {};
+      const { ban_status, role, email_verified } = req.body ?? {};
+
+      /**
+       * Liberar à mão quem não conseguiu confirmar o e-mail.
+       *
+       * A verificação é uma porta, e toda porta prende alguém: e-mail que caiu
+       * no spam, endereço digitado errado, provedor corporativo que engole
+       * mensagem. Sem esta saída, a única alternativa seria mexer no banco na
+       * mão — e quem está divulgando o app não pode depender disso para
+       * destravar um usuário.
+       *
+       * Só libera, nunca tranca de volta: `false` aqui seria trancar alguém que
+       * já entrou, e não há motivo administrativo para isso.
+       */
+      if (email_verified === true) {
+        await pool.query(
+          'UPDATE users SET email_verified = TRUE WHERE id = $1', [id],
+        );
+        console.log(`[admin] usuário ${id} liberado à mão (e-mail dado por confirmado)`);
+      }
 
       if (ban_status) {
         if (!['active','warned','banned'].includes(ban_status))
