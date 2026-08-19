@@ -70,6 +70,9 @@ export async function moderateWithAI(
     }
     return parsed;
   } catch {
+    // Resposta veio mas não era o JSON esperado: isso É um veredito incerto,
+    // diferente de a API não ter respondido — esse caso lança e é tratado em
+    // moderate(), que decide se o barco segue com meia checagem.
     return { verdict: 'uncertain', reason: 'AI response could not be parsed' };
   }
 }
@@ -87,7 +90,35 @@ export async function moderate(
   }
 
   // Layer 2
-  const { verdict, reason } = await moderateWithAI(newContent, history);
+  //
+  // Quando a IA não responde (chave inválida, cota, rede), NÃO propagamos o
+  // erro. Propagar significa não gravar veredito nenhum — e desde que o sweep
+  // passou a exigir aprovação explícita, "sem veredito" é "barco parado para
+  // sempre". Em 19/08/2026 isso deixou 44 barcos encalhados de uma vez.
+  //
+  // O que fazemos: a camada 1 continua valendo, e ela não é pouca — é a que
+  // rejeita link, telefone e a lista de termos. Passando por ela, o barco
+  // segue, e o veredito fica gravado dizendo que saiu SEM a segunda camada.
+  // Isso é rastreável depois com uma consulta, ao contrário de um erro no log.
+  //
+  // Não é uma escolha confortável: é escolher entre "conteúdo passa com meia
+  // checagem" e "o app inteiro para". Com a camada 1 de pé, a primeira é menos
+  // pior — e o registro em `detail` deixa a dívida visível.
+  let verdict: ModerationVerdict;
+  let reason: string;
+  try {
+    ({ verdict, reason } = await moderateWithAI(newContent, history));
+  } catch (err: any) {
+    console.error(
+      '[moderation] IA INDISPONIVEL — seguindo so com a blocklist:',
+      err?.status ?? '', err?.message ?? err,
+    );
+    return {
+      verdict: 'approved',
+      layer: 1,
+      detail: `IA indisponivel (${err?.status ?? 'erro'}) — aprovado so pela blocklist`,
+    };
+  }
 
   // Stricter threshold for new users: treat "uncertain" as "rejected"
   if (isNewUser && verdict === 'uncertain') {
