@@ -13,7 +13,7 @@ import { pool } from './db/pool.js';
 import { ensureBots } from './services/bots.js';
 import { captchaLigado } from './services/captcha.js';
 import { webPushLigado } from './services/notify.js';
-import { envioRealLigado, smtpLigado, conferirSmtp, estadoDoSmtp } from './services/mail.js';
+import { envioRealLigado, smtpLigado, conferirSmtp, estadoDoSmtp, sondaDePortas } from './services/mail.js';
 
 const app = Fastify({ logger: true, trustProxy: true });
 
@@ -141,6 +141,7 @@ app.get('/health', async () => ({
     // Resultado do teste de autenticação feito no boot: 'ok' quer dizer que a
     // senha foi aceita pelo servidor de e-mail, não que a mensagem chegou.
     smtp: estadoDoSmtp(),
+    portas: sondaDePortas() || undefined,
     remetente: process.env.MAIL_FROM ?? '(padrão)',
     webpush: webPushLigado(),
   },

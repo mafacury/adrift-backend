@@ -130,6 +130,30 @@ export function estadoDoSmtp(): { estado: EstadoSmtp; motivo: string } {
   return { estado: estadoSmtp, motivo: motivoSmtp };
 }
 
+/**
+ * Sonda TCP crua, sem SMTP nem TLS: a porta abre ou não abre?
+ *
+ * Serve para separar duas coisas que o erro do nodemailer mistura: "o provedor
+ * de hospedagem bloqueia a saída nesta porta" e "o servidor de e-mail recusou".
+ * Timeout aqui, com o IP certo, quer dizer bloqueio de saída — e nesse caso
+ * nenhuma configuração de SMTP vai funcionar, é preciso trocar de caminho.
+ */
+async function portaAbre(ip: string, porta: number): Promise<string> {
+  const net = await import('node:net');
+  return new Promise((resolve) => {
+    const s = net.connect({ host: ip, port: porta });
+    const fim = (r: string) => { s.destroy(); resolve(r); };
+    s.setTimeout(6000);
+    s.once('connect', () => fim('abre'));
+    s.once('timeout', () => fim('timeout'));
+    s.once('error', (e: any) => fim(e?.code ?? 'erro'));
+  });
+}
+
+/** Preenchido no boot quando o SMTP falha: diz quais portas saem daqui. */
+let sondaPortas = '';
+export function sondaDePortas(): string { return sondaPortas; }
+
 export async function conferirSmtp(): Promise<void> {
   if (!smtpLigado()) { estadoSmtp = 'nao-configurado'; return; }
   try {
@@ -141,6 +165,21 @@ export async function conferirSmtp(): Promise<void> {
     estadoSmtp = 'falha';
     motivoSmtp = `${e?.code ?? 'erro'}: ${String(e?.message ?? e).slice(0, 160)}`;
     console.error(`[mail] SMTP NAO AUTENTICOU — ${motivoSmtp}`);
+
+    // Falhou: descobre se o problema é a saída bloqueada, e em quais portas.
+    try {
+      const nome = process.env.SMTP_HOST!;
+      const v4 = await dns.resolve4(nome).catch(() => [nome]);
+      const ip = v4[0];
+      const [p465, p587, p25, https] = await Promise.all([
+        portaAbre(ip, 465), portaAbre(ip, 587), portaAbre(ip, 25),
+        portaAbre('1.1.1.1', 443),    // controle: a saída funciona para HTTPS?
+      ]);
+      sondaPortas = `${ip} → 465:${p465} 587:${p587} 25:${p25} | controle 443:${https}`;
+      console.error(`[mail] sonda de portas — ${sondaPortas}`);
+    } catch (err) {
+      sondaPortas = `sonda falhou: ${String(err).slice(0, 80)}`;
+    }
   }
 }
 
