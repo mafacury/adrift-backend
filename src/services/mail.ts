@@ -482,6 +482,47 @@ export function emailDeVerificacao(link: string): { assunto: string; html: strin
 }
 
 /**
+ * Boas-vindas.
+ *
+ * Vem DEPOIS da confirmação do e-mail, não junto dela. O e-mail de confirmação
+ * tem uma tarefa só — fazer a pessoa tocar num botão — e recado caloroso no
+ * meio dilui a tarefa. Além disso, "feliz em tê-lo a bordo" só é verdade quando
+ * a pessoa está de fato a bordo.
+ *
+ * Sem verificação exigida não existe esse "depois", então nesse caso ele sai
+ * logo após o cadastro.
+ */
+export function emailDeBoasVindas(): { assunto: string; html: string; texto: string } {
+  const assunto = 'Bem-vindo a bordo do Adrift';
+
+  const linhas = [
+    'Estamos muito felizes em tê-lo a bordo.',
+    'Esperamos proporcionar experiências maravilhosas em sua jornada conosco.',
+    'O Adrift ainda está em desenvolvimento, portanto sinta-se à vontade para ' +
+    `informar erros, sugerir melhorias e opinar sobre a sua experiência — é só responder a este e-mail ou escrever para ${CONTATO}.`,
+    'A sua palavra é valiosa para nós.',
+  ];
+
+  const texto = [
+    'Caro navegante,', '',
+    ...linhas.flatMap((l) => [l, '']),
+    'Obrigado e até breve.',
+  ].join('\n') + rodapeTexto();
+
+  const html = moldar({
+    titulo: 'Bem-vindo a bordo',
+    paragrafos: [
+      'Caro navegante,',
+      ...linhas,
+      '<strong>Obrigado e até breve.</strong>',
+    ],
+    botao: { texto: 'Lançar o meu primeiro barco', href: APP_URL },
+  });
+
+  return { assunto, html, texto };
+}
+
+/**
  * Confirmação de que a senha mudou.
  *
  * Não é aviso de cortesia: é o único momento em que dá para reagir a uma conta

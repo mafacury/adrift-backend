@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { randomBytes, createHash } from 'node:crypto';
 import { pool } from '../db/pool.js';
 import { countryFromIp } from '../services/geo.js';
-import { enviarEmail, emailDeRecuperacao, emailDeVerificacao, emailSenhaAlterada } from '../services/mail.js';
+import { enviarEmail, emailDeRecuperacao, emailDeVerificacao, emailSenhaAlterada, emailDeBoasVindas } from '../services/mail.js';
 import { verificarCaptcha } from '../services/captcha.js';
 import { config } from '../config/index.js';
 
@@ -87,6 +87,21 @@ async function emitirVerificacao(userId: string, email: string): Promise<void> {
   }
 }
 
+/**
+ * Manda as boas-vindas quando a conta passa a valer de verdade.
+ *
+ * "De verdade" muda com a configuração: com verificação exigida é depois de a
+ * pessoa confirmar o e-mail; sem ela, é logo após o cadastro. Nunca lança.
+ */
+async function darBoasVindas(email: string): Promise<void> {
+  try {
+    const { assunto, html, texto } = emailDeBoasVindas();
+    await enviarEmail(email, assunto, html, texto);
+  } catch (err) {
+    console.error('[boas-vindas] falhou para', email, err);
+  }
+}
+
 export async function authRoutes(app: FastifyInstance) {
 
   // ── POST /auth/register ────────────────────────────────────────────────────
@@ -161,6 +176,9 @@ export async function authRoutes(app: FastifyInstance) {
           message: 'Conta criada. Confirme o seu e-mail pelo link que enviamos para entrar.',
         });
       }
+
+      // Sem verificação exigida, a conta ja vale: as boas-vindas saem agora.
+      void darBoasVindas(user.email);
 
       const token = app.jwt.sign({ id: user.id, email: user.email, country: countryCode });
 
@@ -521,10 +539,12 @@ export async function authRoutes(app: FastifyInstance) {
           `UPDATE email_verifications SET used_at = NOW() WHERE id = $1`,
           [rows[0].id],
         );
-        await pool.query(
-          `UPDATE users SET email_verified = TRUE WHERE id = $1`,
+        const { rows: quem } = await pool.query(
+          `UPDATE users SET email_verified = TRUE WHERE id = $1 RETURNING email`,
           [rows[0].user_id],
         );
+        // Agora sim a pessoa está a bordo — é a hora das boas-vindas.
+        if (quem[0]?.email) void darBoasVindas(quem[0].email);
       }
 
       const base = process.env.APP_URL ?? 'https://adriftapp.fun';
