@@ -8,6 +8,7 @@ import { boatRoutes } from './routes/boats.js';
 import { userRoutes } from './routes/users.js';
 import { adminRoutes } from './routes/admin.js';
 import { demoRoutes } from './routes/demo.js';
+import { publicRoutes } from './routes/public.js';
 import { startScheduler } from './services/scheduler.js';
 import { pool } from './db/pool.js';
 import { ensureBots } from './services/bots.js';
@@ -120,6 +121,9 @@ await app.register(boatRoutes);
 await app.register(userRoutes);
 await app.register(adminRoutes);
 await app.register(demoRoutes); // TEMPORÁRIO — remover em produção
+// Página pública da jornada (/j/:id). Sem autenticação de propósito: o link
+// é feito para ser aberto por quem não tem conta.
+await app.register(publicRoutes);
 
 // Health check
 // O /health diz de que COMMIT e de quando é o processo que está no ar.
