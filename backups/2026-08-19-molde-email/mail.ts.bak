@@ -318,107 +318,6 @@ export async function enviarEmail(
   }
 }
 
-// ── A moldura de todo e-mail do Adrift ───────────────────────────────────────
-/**
- * Logotipo em cima, rodapé embaixo, conteúdo no meio.
- *
- * Antes daqui cada modelo desenhava a própria caixa, e o aviso de barco em
- * notify.ts mandava um parágrafo solto sem nada em volta. Três lugares para
- * mudar a mesma coisa é o jeito garantido de os três divergirem.
- *
- * ── Decisões que valem explicar ────────────────────────────────────────────
- *
- * LOGOTIPO POR URL, não embutido. Gmail bloqueia `data:` em e-mail, então
- * imagem em base64 simplesmente não aparece. Anexo com CID funcionaria, mas faz
- * toda mensagem carregar o peso da imagem. URL hospedada é o que os serviços de
- * e-mail transacional usam. O custo: alguns clientes escondem imagem até a
- * pessoa permitir — por isso o `alt` diz "Adrift", e o texto nunca depende da
- * imagem para fazer sentido.
- *
- * NADA DE FLEXBOX OU GRID. O Outlook desenha e-mail com o motor do Word e
- * ignora os dois. Só bloco, largura explícita e estilo em linha.
- *
- * O RODAPÉ diz três coisas, nesta ordem de importância: para onde escrever
- * (a caixa existe de verdade e é a mesma dos Termos), onde fica o app, e por
- * que a pessoa recebeu isto. A última evita a leitura de "por que estão me
- * mandando e-mail?", que é o começo de uma denúncia de spam.
- */
-const APP_URL = process.env.APP_URL ?? 'https://adriftapp.fun';
-const CONTATO = 'contact@adriftapp.fun';
-
-interface Moldura {
-  titulo: string;
-  /** Parágrafos do corpo, já em texto simples. */
-  paragrafos: string[];
-  botao?: { texto: string; href: string };
-  /** Linha miúda depois do botão (prazo, validade). */
-  nota?: string;
-}
-
-function moldar({ titulo, paragrafos, botao, nota }: Moldura): string {
-  const corpo = paragrafos
-    .map((p) => `      <p style="margin:0 0 14px;font-size:14.5px;line-height:22px;color:#3A5069">${p}</p>`)
-    .join('\n');
-
-  const chamada = botao
-    ? `      <p style="margin:18px 0 22px">
-        <a href="${botao.href}" style="display:inline-block;background:#2E86AB;color:#ffffff;
-           text-decoration:none;padding:13px 26px;border-radius:24px;font-size:15px;
-           font-weight:600">${botao.texto}</a>
-      </p>`
-    : '';
-
-  const miudo = nota
-    ? `      <p style="margin:0 0 4px;font-size:12.5px;line-height:19px;color:#6B7F94">${nota}</p>`
-    : '';
-
-  return `
-<div style="background:#0B1A2E;padding:32px 0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
-  <div style="max-width:480px;margin:0 auto;background:#F7F3EA;border-radius:16px;padding:30px 28px 24px">
-
-    <p style="margin:0 0 22px;text-align:center">
-      <a href="${APP_URL}" style="text-decoration:none">
-        <img src="${APP_URL}/logo-email.png" alt="Adrift" width="150"
-             style="width:150px;max-width:60%;height:auto;border:0;display:inline-block">
-      </a>
-    </p>
-
-    <h1 style="margin:0 0 14px;font-size:21px;line-height:28px;color:#17456B;font-weight:600">${titulo}</h1>
-${corpo}
-${chamada}
-${miudo}
-
-    <div style="margin-top:26px;padding-top:16px;border-top:1px solid rgba(23,69,107,0.16)">
-      <p style="margin:0 0 6px;font-size:12px;line-height:18px;color:#6B7F94">
-        Dúvidas ou problemas? Escreva para
-        <a href="mailto:${CONTATO}" style="color:#2E86AB;text-decoration:none">${CONTATO}</a>.
-      </p>
-      <p style="margin:0 0 6px;font-size:12px;line-height:18px;color:#6B7F94">
-        <a href="${APP_URL}" style="color:#2E86AB;text-decoration:none">${APP_URL.replace(/^https?:\/\//, '')}</a>
-        — mensagens em garrafas, de estranho em estranho pelo mundo.
-      </p>
-      <p style="margin:0;font-size:11.5px;line-height:17px;color:#93A5B5">
-        Você recebeu este e-mail porque tem uma conta no Adrift. Só mandamos
-        mensagem sobre a sua conta e os seus barcos — nunca propaganda.
-      </p>
-    </div>
-
-  </div>
-</div>`.trim();
-}
-
-/** O mesmo rodapé, para a versão em texto puro. */
-function rodapeTexto(): string {
-  return [
-    '',
-    '—',
-    `Dúvidas? Escreva para ${CONTATO}`,
-    APP_URL,
-    '',
-    'Você recebeu este e-mail porque tem uma conta no Adrift.',
-  ].join('\n');
-}
-
 /** O e-mail de recuperação. Texto e HTML dizem a mesma coisa. */
 export function emailDeRecuperacao(link: string): { assunto: string; html: string; texto: string } {
   const assunto = 'Recuperar a sua senha do Adrift';
@@ -433,16 +332,32 @@ export function emailDeRecuperacao(link: string): { assunto: string; html: strin
     '',
     'Se não foi você, ignore esta mensagem. Nada muda enquanto o link não for',
     'usado, e a sua senha atual continua valendo.',
-  ].join('\n') + rodapeTexto();
+    '',
+    '— Adrift',
+  ].join('\n');
 
-  const html = moldar({
-    titulo: 'Recuperar a sua senha',
-    paragrafos: [
-      'Alguém pediu para recuperar a senha desta conta no Adrift. Para escolher uma senha nova, toque no botão:',
-    ],
-    botao: { texto: 'Escolher senha nova', href: link },
-    nota: 'O link vale por 1 hora e só funciona uma vez. Se não foi você, ignore esta mensagem — nada muda enquanto o link não for usado, e a sua senha atual continua valendo.',
-  });
+  const html = `
+<div style="background:#0B1A2E;padding:32px 0;font-family:-apple-system,Segoe UI,Roboto,sans-serif">
+  <div style="max-width:480px;margin:0 auto;background:#F7F3EA;border-radius:16px;padding:32px 28px">
+    <h1 style="margin:0 0 6px;font-size:22px;color:#17456B;font-weight:600">Recuperar a sua senha</h1>
+    <p style="margin:0 0 20px;font-size:14.5px;line-height:22px;color:#3A5069">
+      Alguém pediu para recuperar a senha desta conta no Adrift.
+      Para escolher uma senha nova, toque no botão:
+    </p>
+    <p style="margin:0 0 22px">
+      <a href="${link}" style="display:inline-block;background:#2E86AB;color:#fff;text-decoration:none;
+         padding:13px 26px;border-radius:24px;font-size:15px;font-weight:600">Escolher senha nova</a>
+    </p>
+    <p style="margin:0 0 18px;font-size:12.5px;line-height:19px;color:#6B7F94">
+      O link vale por 1 hora e só funciona uma vez.
+    </p>
+    <p style="margin:0;font-size:12.5px;line-height:19px;color:#6B7F94">
+      Se não foi você, ignore esta mensagem. Nada muda enquanto o link não for usado,
+      e a sua senha atual continua valendo.
+    </p>
+  </div>
+  <p style="text-align:center;margin:18px 0 0;font-size:11px;color:rgba(243,237,224,0.45)">Adrift</p>
+</div>`;
 
   return { assunto, html, texto };
 }
@@ -467,35 +382,31 @@ export function emailDeVerificacao(link: string): { assunto: string; html: strin
     '',
     'Se não foi você que se cadastrou, ignore esta mensagem — sem a confirmação',
     'a conta não é usada por ninguém.',
-  ].join('\n') + rodapeTexto();
+    '',
+    '— Adrift',
+  ].join('\n');
 
-  const html = moldar({
-    titulo: 'Bem-vindo ao Adrift',
-    paragrafos: [
-      'Falta um passo para o seu primeiro barco ir ao mar: confirme que este endereço é seu.',
-    ],
-    botao: { texto: 'Confirmar meu e-mail', href: link },
-    nota: 'O link vale por 24 horas e só funciona uma vez. Se não foi você que se cadastrou, ignore esta mensagem — sem a confirmação a conta não é usada por ninguém.',
-  });
+  const html = `
+<div style="background:#0B1A2E;padding:32px 0;font-family:-apple-system,Segoe UI,Roboto,sans-serif">
+  <div style="max-width:480px;margin:0 auto;background:#F7F3EA;border-radius:16px;padding:32px 28px">
+    <h1 style="margin:0 0 6px;font-size:22px;color:#17456B;font-weight:600">Bem-vindo ao Adrift</h1>
+    <p style="margin:0 0 20px;font-size:14.5px;line-height:22px;color:#3A5069">
+      Falta um passo para o seu primeiro barco ir ao mar: confirme que este
+      endereço é seu.
+    </p>
+    <p style="margin:0 0 22px">
+      <a href="${link}" style="display:inline-block;background:#2E86AB;color:#fff;text-decoration:none;
+         padding:13px 26px;border-radius:24px;font-size:15px;font-weight:600">Confirmar meu e-mail</a>
+    </p>
+    <p style="margin:0 0 18px;font-size:12.5px;line-height:19px;color:#6B7F94">
+      O link vale por 24 horas e só funciona uma vez.
+    </p>
+    <p style="margin:0;font-size:12.5px;line-height:19px;color:#6B7F94">
+      Se não foi você que se cadastrou, ignore esta mensagem — sem a confirmação
+      a conta não é usada por ninguém.
+    </p>
+  </div>
+</div>`.trim();
 
   return { assunto, html, texto };
-}
-
-/**
- * O aviso de barco, que antes saía como um parágrafo solto sem moldura.
- *
- * Exportado porque quem o dispara é o notify.ts, e o desenho dos e-mails tem
- * que morar num lugar só — foi por isso que esta moldura existe.
- */
-export function emailDeAviso(
-  titulo: string, corpo: string, url?: string,
-): { html: string; texto: string } {
-  return {
-    html: moldar({
-      titulo,
-      paragrafos: [corpo],
-      botao: url ? { texto: 'Abrir o Adrift', href: `${APP_URL}${url}` } : undefined,
-    }),
-    texto: corpo + (url ? `\n\n${APP_URL}${url}` : '') + rodapeTexto(),
-  };
 }

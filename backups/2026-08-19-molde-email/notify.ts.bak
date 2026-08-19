@@ -27,7 +27,7 @@
 import webpush from 'web-push';
 import { pool } from '../db/pool.js';
 import { config } from '../config/index.js';
-import { enviarEmail, emailDeAviso } from './mail.js';
+import { enviarEmail } from './mail.js';
 
 let vapidPronto = false;
 export function webPushLigado(): boolean {
@@ -141,11 +141,14 @@ async function porEmailSeCabivel(userId: string, aviso: Aviso): Promise<number> 
       [userId],
     );
     if (!rows.length) return 0;
-    // A moldura (logotipo, rodapé, contato) mora em mail.ts. Aqui só dizemos o
-    // que aconteceu — antes daqui este aviso saía como um parágrafo solto, sem
-    // marca nem jeito de responder.
-    const { html, texto } = emailDeAviso(aviso.titulo, aviso.corpo, aviso.url);
-    const ok = await enviarEmail(rows[0].email, aviso.titulo, html, texto);
+    const ok = await enviarEmail(
+      rows[0].email,
+      aviso.titulo,
+      `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:23px;color:#3A5069">
+         <p style="margin:0 0 14px">${aviso.corpo}</p>
+       </div>`,
+      aviso.corpo,
+    );
     return ok ? 1 : 0;
   } catch (err) {
     console.error('[aviso] e-mail falhou:', err);
