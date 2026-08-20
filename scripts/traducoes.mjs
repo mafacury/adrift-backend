@@ -41,6 +41,23 @@ const LOG = /console\.(log|warn|error)|\[(mail|aviso|alerta|moderation|routing|j
 const IGNORAR = ['http', './', '../', '#', '@', 'data:', 'rgba', 'rgb(', 'SELECT', 'INSERT', 'UPDATE', 'DELETE'];
 
 /**
+ * Texto que NUNCA chega a um usuário, e que por isso não deve ir para o CSV.
+ *
+ * Dez frases assim escaparam na primeira extração e foram traduzidas para sete
+ * idiomas sem necessidade nenhuma: moldura de log, comentário dentro de SQL,
+ * exemplo dentro de um prompt de IA, código de erro que só o painel vê.
+ * Traduzir é barato; o custo real é o CSV encher de linha que não importa e
+ * esconder as que importam.
+ */
+const NAO_E_DE_USUARIO = [
+  /^┌|^│|^└|^├/,          // molduras de log (┌ │ └ ├)
+  /^← /,                                  // seta de aviso no log (←)
+  /log dizendo|verdict|rejected\/uncertain/i,  // comentário dentro de SQL
+  /aspas\/espa|chave aceita|\(padr[ãa]o\)/i,   // diagnóstico do /health
+  /^(ban_status|role|status|key e value) /i,   // erro de API só do painel
+];
+
+/**
  * Transforma as sequências de escape do CÓDIGO nos caracteres de verdade.
  *
  * No arquivo, `'linha um\nlinha dois'` são os caracteres barra-invertida e n.
@@ -72,6 +89,7 @@ function ehTexto(t, linha) {
   if (IGNORAR.some((p) => s.startsWith(p))) return false;
   if (/^[A-Za-z0-9_\-.:/ ]+$/.test(s)) return false;
   if (LOG.test(linha)) return false;
+  if (NAO_E_DE_USUARIO.some((re) => re.test(s))) return false;
   return ACENTO.test(s) || (s.match(PALAVRAS) ?? []).length >= 2;
 }
 

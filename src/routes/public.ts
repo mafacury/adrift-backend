@@ -34,9 +34,20 @@ import { GIFTS } from '../services/gifts.js';
 
 const APP_URL = process.env.APP_URL ?? 'https://adriftapp.fun';
 
+/**
+ * Os nomes dos oito modelos.
+ *
+ * A FONTE DA VERDADE é mobile/components/boat-stages.tsx — esta é uma cópia,
+ * porque o servidor não importa do app. Ao mexer lá, mexa aqui.
+ *
+ * Escrevi esta lista com os nomes ANTIGOS, de antes da versão 1.15.0: os
+ * estágios 5, 6 e 7 estavam como Transatlântica, Galeão e Navio. A página
+ * pública mostrava um nome que o app não usa mais — o mesmo barco era "Bravia"
+ * na tela e "Galeão" no link compartilhado.
+ */
 const ESTAGIO: Record<number, string> = {
   1: 'Novata', 2: 'Enseada', 3: 'Costeira', 4: 'Oceânica',
-  5: 'Transatlântica', 6: 'Galeão', 7: 'Navio', 8: 'Nau Lendária',
+  5: 'Errante', 6: 'Bravia', 7: 'Soberana', 8: 'Nau Lendária',
 };
 
 /** Escapa o que vai para o HTML. Nome de país vem do banco, mas confiar é hábito ruim. */
