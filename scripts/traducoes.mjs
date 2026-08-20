@@ -103,6 +103,19 @@ function* arquivos(dir) {
   }
 }
 
+/**
+ * Texto solto DENTRO de JSX — `<Text>Já tenho conta</Text>`.
+ *
+ * A primeira versão só olhava literal entre aspas e perdeu 55 frases, quase um
+ * quarto do total. Numa tela React metade do texto não está entre aspas: está
+ * como filho de elemento. Sem isto, a tela traduz pela metade — e o pior é que
+ * o que falta some em silêncio, sem erro nenhum.
+ *
+ * Casa só o que está entre `>` e `<` sem chaves nem tags no meio: com `{}` o
+ * conteúdo é expressão, e expressão já passa pelo caminho dos literais.
+ */
+const TEXTO_JSX = /> *([^<>{}\n][^<>{}\n]{2,199}?) *</g;
+
 function varrer() {
   const achados = new Map();   // texto -> "arquivo:linha"
   for (const base of [join(RAIZ, 'mobile'), join(RAIZ, 'backend', 'src')]) {
@@ -119,6 +132,14 @@ function varrer() {
           // A chave tem de ser o texto COMO ELE EXISTE EM EXECUÇÃO.
           const t = desescapar(bruto);
           if (!achados.has(t)) achados.set(t, `${rel}:${i + 1}`);
+        }
+        // Texto solto dentro de JSX, que não passa pelo caminho acima.
+        if (p.endsWith('.tsx')) {
+          for (const m of linha.matchAll(TEXTO_JSX)) {
+            const bruto = m[1].trim();
+            if (!ehTexto(bruto, linha)) continue;
+            if (!achados.has(bruto)) achados.set(bruto, `${rel}:${i + 1}`);
+          }
         }
       });
     }
