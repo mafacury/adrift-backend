@@ -109,10 +109,33 @@ function varrer() {
 }
 
 // ── CSV mínimo, sem dependência ─────────────────────────────────────────────
-// Aspas duplas dobradas, campo entre aspas quando tem vírgula, aspas ou quebra.
+
+/**
+ * O símbolo que ocupa o lugar de uma quebra de linha no CSV.
+ *
+ * A coluna `pt` tem de bater EXATAMENTE com o texto em execução, senão a busca
+ * falha — foi o defeito de 19/08. Mas quebra de verdade parte a frase em duas
+ * linhas da planilha, e quem traduz não deve ter de lidar com isso.
+ *
+ * Um símbolo resolve os dois lados: cada texto ocupa UMA linha, e a chave
+ * continua reconstruível na volta. Escolhi ⏎ por ser visível e não aparecer em
+ * texto de verdade — ao contrário de `\n`, que numa frase como "vai\nno
+ * coração" parece um símbolo esquisito em vez de uma quebra.
+ *
+ * Quem traduz pode ignorá-lo e escrever a frase corrida: as quebras de cada
+ * idioma são reinseridas depois, onde fizerem sentido naquele idioma.
+ */
+const QUEBRA = '⏎';
+
+/**
+ * Sempre entre aspas.
+ *
+ * O CSV só EXIGE aspas quando o campo tem vírgula, aspas ou quebra — e aí
+ * metade das linhas sai citada e metade não, o que parece inconsistência ao
+ * abrir o arquivo cru. Citar tudo é igualmente válido e some com a estranheza.
+ */
 function csvEscapar(v) {
-  const s = String(v ?? '');
-  return /[",\n]/.test(s) ? `"${s.split('"').join('""')}"` : s;
+  return `"${String(v ?? '').split('"').join('""')}"`;
 }
 
 function csvLer(txt) {
@@ -144,7 +167,7 @@ function extrair() {
     const iPt = cabecalho.indexOf('pt');
     for (const l of linhas.slice(1)) {
       const obj = {};
-      cabecalho.forEach((c, i) => { obj[c] = l[i] ?? ''; });
+      cabecalho.forEach((c, i) => { obj[c] = String(l[i] ?? '').split(QUEBRA).join('\n'); });
       if (obj[iPt >= 0 ? 'pt' : cabecalho[0]]) existentes.set(obj.pt, obj);
     }
   }
@@ -174,8 +197,11 @@ function extrair() {
   }
 
   if (!cabecalho.includes('situacao')) cabecalho.push('situacao');
-  const txt = [cabecalho.join(',')]
-    .concat(saida.map((l) => cabecalho.map((c) => csvEscapar(l[c])).join(',')))
+  // Quebra de linha vira símbolo na saída: cada texto ocupa UMA linha da
+  // planilha, e a chave continua reconstruível na volta.
+  const paraCsv = (v) => String(v ?? '').split('\n').join(QUEBRA);
+  const txt = [cabecalho.map(csvEscapar).join(',')]
+    .concat(saida.map((l) => cabecalho.map((c) => csvEscapar(paraCsv(l[c]))).join(',')))
     .join('\n');
   writeFileSync(CSV, '﻿' + txt, 'utf8');
 
@@ -197,7 +223,7 @@ function compilar() {
 
   for (const l of linhas.slice(1)) {
     const obj = {};
-    cabecalho.forEach((c, i) => { obj[c] = l[i] ?? ''; });
+    cabecalho.forEach((c, i) => { obj[c] = String(l[i] ?? '').split(QUEBRA).join('\n'); });
     if (!obj.pt || String(obj.situacao).startsWith('ORFAO')) continue;
     for (const idioma of idiomas) {
       const v = String(obj[idioma] ?? '').trim();
