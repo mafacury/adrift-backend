@@ -21,7 +21,7 @@ import { pool } from '../db/pool.js';
 const AQUI = dirname(fileURLToPath(import.meta.url));
 
 /** `pt` não tem arquivo: é a língua de origem, o fallback já a devolve. */
-const IDIOMAS = ['en', 'es'];
+const IDIOMAS = ['en', 'fr', 'es', 'ar', 'de', 'hi'];
 
 function carregar(): Record<string, Record<string, string>> {
   const out: Record<string, Record<string, string>> = {};
