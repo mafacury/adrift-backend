@@ -3,3 +3,6 @@ dist/
 .env
 .env.local
 *.log
+
+# cópias de segurança locais — não pertencem ao repositório
+backups/
