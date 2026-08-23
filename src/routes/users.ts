@@ -8,10 +8,30 @@ import { MIN_COUNTRIES_TO_RETURN, REASON_LABEL, ArchiveReason } from '../service
 import { agradecer, fraseValida, recadosDe, marcarRecadosLidos, jaAgradecidos } from '../services/thanks.js';
 import { webPushLigado } from '../services/notify.js';
 import { config } from '../config/index.js';
+import { codigoDeConvite, placarDeConvites } from '../services/indicacao.js';
 
 let cacheTextos: { at: number; mapa: Record<string, string> } | null = null;
 
 export async function userRoutes(app: FastifyInstance) {
+
+  // ── GET /users/me/convite ──────────────────────────────────────────────────
+  /**
+   * O link de convite da pessoa, mais o placar do que ele já rendeu.
+   *
+   * O código nasce aqui, na primeira vez que alguém pede — quem nunca convidar
+   * ninguém não carrega um código à toa, e não foi preciso preencher a coluna
+   * para quem já existia.
+   */
+  app.get('/users/me/convite', async (req, reply) => {
+    const userId = (req as any).user?.id;
+    if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+
+    const code = await codigoDeConvite(userId);
+    const base = process.env.APP_URL ?? 'https://adriftapp.fun';
+    const placar = await placarDeConvites(userId);
+
+    return reply.send({ code, link: `${base}/?convite=${code}`, ...placar });
+  });
   // ── GET /users/me/achievements ─────────────────────────────────────────────
   app.get(
     '/users/me/achievements',

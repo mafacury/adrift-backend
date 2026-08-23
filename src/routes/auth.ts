@@ -7,6 +7,7 @@ import { enviarEmail, emailDeRecuperacao, emailDeVerificacao, emailSenhaAlterada
 import { verificarCaptcha } from '../services/captcha.js';
 import { config } from '../config/index.js';
 import { idiomaSuportado, idiomaDoUsuario } from '../services/i18n.js';
+import { donoDoCodigo } from '../services/indicacao.js';
 
 interface RegisterBody {
   email: string;
@@ -25,6 +26,8 @@ interface RegisterBody {
    * navegador nenhum a quem perguntar.
    */
   lang?: string;
+  /** Código do link de convite, quando a pessoa chegou pelo convite de alguém. */
+  convite?: string;
 }
 
 interface LoginBody {
@@ -128,6 +131,7 @@ export async function authRoutes(app: FastifyInstance) {
             terms_version: { type: 'string', minLength: 1, maxLength: 40 },
             captcha_token: { type: 'string', maxLength: 4000 },
             lang:          { type: 'string', maxLength: 8 },
+            convite:       { type: 'string', maxLength: 32 },
           },
         },
       },
@@ -136,7 +140,7 @@ export async function authRoutes(app: FastifyInstance) {
       config: { rateLimit: { max: config.antispam.rateLimitAuthMax, timeWindow: '1 minute' } },
     },
     async (req: FastifyRequest<{ Body: RegisterBody }>, reply: FastifyReply) => {
-      const { email, password, accept_terms, terms_version, captcha_token, lang } = req.body;
+      const { email, password, accept_terms, terms_version, captcha_token, lang, convite } = req.body;
 
       // CAPTCHA antes de qualquer coisa cara: sem chave configurada isto passa
       // direto (e o boot avisa). Fica ANTES do bcrypt de propósito — não faz
@@ -167,13 +171,18 @@ export async function authRoutes(app: FastifyInstance) {
       const passwordHash = await bcrypt.hash(password, 12);
       const countryCode  = await countryFromIp(req.ip);
 
+      // Quem trouxe esta pessoa. Código inválido não é erro: quem chegou por
+      // um link torto continua se cadastrando normalmente, só sem padrinho —
+      // recusar o cadastro por causa disso puniria a pessoa errada.
+      const padrinho = convite ? await donoDoCodigo(convite) : null;
+
       const { rows } = await pool.query(
         `INSERT INTO users (email, password_hash, country_code,
-                            terms_accepted_at, terms_version, lang)
-         VALUES ($1, $2, $3, NOW(), $4, $5)
+                            terms_accepted_at, terms_version, lang, referred_by)
+         VALUES ($1, $2, $3, NOW(), $4, $5, $6)
          RETURNING id, email, created_at`,
         [email.toLowerCase(), passwordHash, countryCode, terms_version,
-         idiomaSuportado(lang)],
+         idiomaSuportado(lang), padrinho],
       );
       const user = rows[0];
 

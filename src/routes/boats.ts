@@ -11,6 +11,7 @@ import { boatGiftMessage } from '../services/push.js';
 import { avisar } from '../services/notify.js';
 import { config } from '../config/index.js';
 import { traduzirMensagens } from '../services/translate.js';
+import { premiarIndicacao } from '../services/indicacao.js';
 
 interface CreateBoatBody {
   content: string;
@@ -104,6 +105,12 @@ export async function boatRoutes(app: FastifyInstance) {
 
         // Moderação roda em background — resposta não espera
         void processModeration({ boatId, messageId, content, userId, countryCode });
+
+        // Se esta pessoa veio pelo convite de alguém, é AQUI que quem a trouxe
+        // recebe o prêmio — no primeiro barco, não no cadastro. Cadastro é
+        // barato de fabricar; lançar um barco exige e-mail confirmado, captcha,
+        // país e algo escrito. Sem await: prêmio não pode atrasar o lançamento.
+        void premiarIndicacao(userId);
 
         return reply.code(202).send({
           boatId,
