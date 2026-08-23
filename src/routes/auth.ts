@@ -6,7 +6,7 @@ import { countryFromIp } from '../services/geo.js';
 import { enviarEmail, emailDeRecuperacao, emailDeVerificacao, emailSenhaAlterada, emailDeBoasVindas } from '../services/mail.js';
 import { verificarCaptcha } from '../services/captcha.js';
 import { config } from '../config/index.js';
-import { idiomaSuportado } from '../services/i18n.js';
+import { idiomaSuportado, idiomaDoUsuario } from '../services/i18n.js';
 
 interface RegisterBody {
   email: string;
@@ -89,7 +89,7 @@ async function emitirVerificacao(userId: string, email: string): Promise<void> {
     // cá: a página de confirmação é servida pronta pelo servidor, então funciona
     // mesmo antes de o site ser republicado.
     const link = `${apiUrl()}/auth/verify?token=${token}`;
-    const { assunto, html, texto } = emailDeVerificacao(link);
+    const { assunto, html, texto } = emailDeVerificacao(link, await idiomaDoUsuario(userId));
     await enviarEmail(email, assunto, html, texto);
   } catch (err) {
     console.error('[verificacao] falhou ao emitir para', userId, err);
@@ -102,9 +102,9 @@ async function emitirVerificacao(userId: string, email: string): Promise<void> {
  * "De verdade" muda com a configuração: com verificação exigida é depois de a
  * pessoa confirmar o e-mail; sem ela, é logo após o cadastro. Nunca lança.
  */
-async function darBoasVindas(email: string): Promise<void> {
+async function darBoasVindas(email: string, lang = 'pt'): Promise<void> {
   try {
-    const { assunto, html, texto } = emailDeBoasVindas();
+    const { assunto, html, texto } = emailDeBoasVindas(lang);
     await enviarEmail(email, assunto, html, texto);
   } catch (err) {
     console.error('[boas-vindas] falhou para', email, err);
@@ -189,7 +189,7 @@ export async function authRoutes(app: FastifyInstance) {
       }
 
       // Sem verificação exigida, a conta ja vale: as boas-vindas saem agora.
-      void darBoasVindas(user.email);
+      void darBoasVindas(user.email, idiomaSuportado(lang));
 
       const token = app.jwt.sign({ id: user.id, email: user.email, country: countryCode });
 
@@ -424,7 +424,7 @@ export async function authRoutes(app: FastifyInstance) {
       // servidor antes de o app existir para tratá-lo.
       const base = process.env.APP_URL ?? 'https://adriftapp.fun';
       const link = `${base}/?reset=${token}`;
-      const { assunto, html, texto } = emailDeRecuperacao(link);
+      const { assunto, html, texto } = emailDeRecuperacao(link, await idiomaDoUsuario(user.id));
       await enviarEmail(email, assunto, html, texto);
 
       return reply.send(resposta);
@@ -487,10 +487,10 @@ export async function authRoutes(app: FastifyInstance) {
       void (async () => {
         try {
           const { rows: u } = await pool.query(
-            'SELECT email FROM users WHERE id = $1', [user_id],
+            'SELECT email, lang FROM users WHERE id = $1', [user_id],
           );
           if (!u.length) return;
-          const { assunto, html, texto } = emailSenhaAlterada(new Date());
+          const { assunto, html, texto } = emailSenhaAlterada(new Date(), idiomaSuportado(u[0].lang));
           await enviarEmail(u[0].email, assunto, html, texto);
         } catch (err) {
           console.error('[auth] aviso de senha alterada falhou:', err);
@@ -551,11 +551,11 @@ export async function authRoutes(app: FastifyInstance) {
           [rows[0].id],
         );
         const { rows: quem } = await pool.query(
-          `UPDATE users SET email_verified = TRUE WHERE id = $1 RETURNING email`,
+          `UPDATE users SET email_verified = TRUE WHERE id = $1 RETURNING email, lang`,
           [rows[0].user_id],
         );
         // Agora sim a pessoa está a bordo — é a hora das boas-vindas.
-        if (quem[0]?.email) void darBoasVindas(quem[0].email);
+        if (quem[0]?.email) void darBoasVindas(quem[0].email, idiomaSuportado(quem[0].lang));
       }
 
       const base = process.env.APP_URL ?? 'https://adriftapp.fun';

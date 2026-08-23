@@ -51,6 +51,14 @@ export async function demoRoutes(app: FastifyInstance) {
     const userId = (req as any).user?.id;
     if (!userId) return reply.code(401).send({ error: 'unauthorized' });
 
+    // Só administrador. Aberta a todos, esta rota fabricava barcos com
+    // mensagens prontas sem limite nenhum — e por cima do teto de 3 barcos
+    // ativos, porque os barcos nascem em nome dos bots e o teto olha para o
+    // criador. Qualquer pessoa inflava as estatísticas da home e o ranking.
+    if ((req as any).user?.role !== 'admin') {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
+
     // 1. Garantir que os bots existem (ativos — eles também recebem barcos)
     const botIds = [...(await ensureBots()).values()];
 

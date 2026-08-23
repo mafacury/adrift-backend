@@ -28,6 +28,7 @@ import webpush from 'web-push';
 import { pool } from '../db/pool.js';
 import { config } from '../config/index.js';
 import { enviarEmail, emailDeAviso } from './mail.js';
+import { idiomaDoUsuario } from './i18n.js';
 
 let vapidPronto = false;
 export function webPushLigado(): boolean {
@@ -139,14 +140,15 @@ async function porEmailSeCabivel(userId: string, aviso: Aviso): Promise<number> 
   if (!aviso.porEmail) return 0;
   try {
     const { rows } = await pool.query(
-      `SELECT email FROM users WHERE id = $1 AND oauth_provider IS DISTINCT FROM 'bot'`,
+      `SELECT email, lang FROM users WHERE id = $1 AND oauth_provider IS DISTINCT FROM 'bot'`,
       [userId],
     );
     if (!rows.length) return 0;
+    const lang = await idiomaDoUsuario(userId);
     // A moldura (logotipo, rodapé, contato) mora em mail.ts. Aqui só dizemos o
     // que aconteceu — antes daqui este aviso saía como um parágrafo solto, sem
     // marca nem jeito de responder.
-    const { html, texto } = emailDeAviso(aviso.titulo, aviso.corpo, aviso.url, aviso.rotuloBotao);
+    const { html, texto } = emailDeAviso(aviso.titulo, aviso.corpo, aviso.url, aviso.rotuloBotao, lang);
     const ok = await enviarEmail(rows[0].email, aviso.titulo, html, texto);
     return ok ? 1 : 0;
   } catch (err) {

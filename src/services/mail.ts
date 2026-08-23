@@ -50,6 +50,7 @@
  */
 import nodemailer, { type Transporter } from 'nodemailer';
 import { promises as dns } from 'node:dns';
+import { tr } from './i18n.js';
 
 const RESEND_URL = 'https://api.resend.com/emails';
 
@@ -347,6 +348,8 @@ const APP_URL = process.env.APP_URL ?? 'https://adriftapp.fun';
 const CONTATO = 'contact@adriftapp.fun';
 
 interface Moldura {
+  /** Idioma de quem vai ler. Cai em portugues quando nao se sabe. */
+  lang: string;
   titulo: string;
   /** Parágrafos do corpo, já em texto simples. */
   paragrafos: string[];
@@ -355,7 +358,7 @@ interface Moldura {
   nota?: string;
 }
 
-function moldar({ titulo, paragrafos, botao, nota }: Moldura): string {
+function moldar({ lang, titulo, paragrafos, botao, nota }: Moldura): string {
   const corpo = paragrafos
     .map((p) => `      <p style="margin:0 0 14px;font-size:14.5px;line-height:22px;color:#3A5069">${p}</p>`)
     .join('\n');
@@ -390,16 +393,16 @@ ${miudo}
 
     <div style="margin-top:26px;padding-top:16px;border-top:1px solid rgba(23,69,107,0.16)">
       <p style="margin:0 0 6px;font-size:12px;line-height:18px;color:#6B7F94">
-        Dúvidas ou problemas? Escreva para
+        ${tr(lang, 'Dúvidas ou problemas? Escreva para')}
         <a href="mailto:${CONTATO}" style="color:#2E86AB;text-decoration:none">${CONTATO}</a>.
       </p>
       <p style="margin:0 0 6px;font-size:12px;line-height:18px;color:#6B7F94">
         <a href="${APP_URL}" style="color:#2E86AB;text-decoration:none">${APP_URL.replace(/^https?:\/\//, '')}</a>
-        — mensagens em garrafas, de estranho em estranho pelo mundo.
+        — ${tr(lang, 'mensagens em garrafas, de estranho em estranho pelo mundo.')}
       </p>
       <p style="margin:0;font-size:11.5px;line-height:17px;color:#93A5B5">
-        Você recebeu este e-mail porque tem uma conta no Adrift. Só mandamos
-        mensagem sobre a sua conta e os seus barcos — nunca propaganda.
+        ${tr(lang, 'Você recebeu este e-mail porque tem uma conta no Adrift.')}
+        ${tr(lang, 'Só mandamos mensagem sobre a sua conta e os seus barcos — nunca propaganda.')}
       </p>
     </div>
 
@@ -408,40 +411,43 @@ ${miudo}
 }
 
 /** O mesmo rodapé, para a versão em texto puro. */
-function rodapeTexto(): string {
+function rodapeTexto(lang: string): string {
   return [
     '',
     '—',
-    `Dúvidas? Escreva para ${CONTATO}`,
+    `${tr(lang, 'Dúvidas? Escreva para {contato}', { contato: CONTATO })}`,
     APP_URL,
     '',
-    'Você recebeu este e-mail porque tem uma conta no Adrift.',
+    tr(lang, 'Você recebeu este e-mail porque tem uma conta no Adrift.'),
   ].join('\n');
 }
 
 /** O e-mail de recuperação. Texto e HTML dizem a mesma coisa. */
-export function emailDeRecuperacao(link: string): { assunto: string; html: string; texto: string } {
-  const assunto = 'Recuperar a sua senha do Adrift';
+export function emailDeRecuperacao(
+  link: string, lang = 'pt',
+): { assunto: string; html: string; texto: string } {
+  const assunto = tr(lang, 'Recuperar a sua senha do Adrift');
 
   const texto = [
-    'Alguém pediu para recuperar a senha desta conta no Adrift.',
+    tr(lang, 'Alguém pediu para recuperar a senha desta conta no Adrift.'),
     '',
-    'Para escolher uma senha nova, abra o endereço abaixo:',
+    tr(lang, 'Para escolher uma senha nova, abra o endereço abaixo:'),
     link,
     '',
-    'O link vale por 1 hora e só funciona uma vez.',
+    tr(lang, 'O link vale por 1 hora e só funciona uma vez.'),
     '',
-    'Se não foi você, ignore esta mensagem. Nada muda enquanto o link não for',
-    'usado, e a sua senha atual continua valendo.',
-  ].join('\n') + rodapeTexto();
+    tr(lang, 'Se não foi você, ignore esta mensagem. Nada muda enquanto o link não for usado, e a sua senha atual continua valendo.'),
+  ].join('\n') + rodapeTexto(lang);
 
   const html = moldar({
-    titulo: 'Recuperar a sua senha',
+    lang,
+    titulo: tr(lang, 'Recuperar a sua senha'),
     paragrafos: [
-      'Alguém pediu para recuperar a senha desta conta no Adrift. Para escolher uma senha nova, toque no botão:',
+      tr(lang, 'Alguém pediu para recuperar a senha desta conta no Adrift. Para escolher uma senha nova, toque no botão:'),
     ],
-    botao: { texto: 'Escolher senha nova', href: link },
-    nota: 'O link vale por 1 hora e só funciona uma vez. Se não foi você, ignore esta mensagem — nada muda enquanto o link não for usado, e a sua senha atual continua valendo.',
+    botao: { texto: tr(lang, 'Escolher senha nova'), href: link },
+    nota: tr(lang, 'O link vale por 1 hora e só funciona uma vez.') + ' '
+        + tr(lang, 'Se não foi você, ignore esta mensagem. Nada muda enquanto o link não for usado, e a sua senha atual continua valendo.'),
   });
 
   return { assunto, html, texto };
@@ -453,29 +459,31 @@ export function emailDeRecuperacao(link: string): { assunto: string; html: strin
  * Mesmo molde do e-mail de recuperação — a diferença de tom é proposital: aqui
  * é boas-vindas, não socorro.
  */
-export function emailDeVerificacao(link: string): { assunto: string; html: string; texto: string } {
-  const assunto = 'Confirme o seu e-mail no Adrift';
+export function emailDeVerificacao(
+  link: string, lang = 'pt',
+): { assunto: string; html: string; texto: string } {
+  const assunto = tr(lang, 'Confirme o seu e-mail no Adrift');
 
   const texto = [
-    'Bem-vindo ao Adrift.',
+    tr(lang, 'Bem-vindo ao Adrift'),
     '',
-    'Falta um passo para o seu primeiro barco ir ao mar: confirme que este',
-    'endereço é seu abrindo o link abaixo.',
+    tr(lang, 'Falta um passo para o seu primeiro barco ir ao mar: confirme que este endereço é seu.'),
     link,
     '',
-    'O link vale por 24 horas e só funciona uma vez.',
+    tr(lang, 'O link vale por 24 horas e só funciona uma vez.'),
     '',
-    'Se não foi você que se cadastrou, ignore esta mensagem — sem a confirmação',
-    'a conta não é usada por ninguém.',
-  ].join('\n') + rodapeTexto();
+    tr(lang, 'Se não foi você que se cadastrou, ignore esta mensagem — sem a confirmação a conta não é usada por ninguém.'),
+  ].join('\n') + rodapeTexto(lang);
 
   const html = moldar({
-    titulo: 'Bem-vindo ao Adrift',
+    lang,
+    titulo: tr(lang, 'Bem-vindo ao Adrift'),
     paragrafos: [
-      'Falta um passo para o seu primeiro barco ir ao mar: confirme que este endereço é seu.',
+      tr(lang, 'Falta um passo para o seu primeiro barco ir ao mar: confirme que este endereço é seu.'),
     ],
-    botao: { texto: 'Confirmar meu e-mail', href: link },
-    nota: 'O link vale por 24 horas e só funciona uma vez. Se não foi você que se cadastrou, ignore esta mensagem — sem a confirmação a conta não é usada por ninguém.',
+    botao: { texto: tr(lang, 'Confirmar meu e-mail'), href: link },
+    nota: tr(lang, 'O link vale por 24 horas e só funciona uma vez.') + ' '
+        + tr(lang, 'Se não foi você que se cadastrou, ignore esta mensagem — sem a confirmação a conta não é usada por ninguém.'),
   });
 
   return { assunto, html, texto };
@@ -492,31 +500,31 @@ export function emailDeVerificacao(link: string): { assunto: string; html: strin
  * Sem verificação exigida não existe esse "depois", então nesse caso ele sai
  * logo após o cadastro.
  */
-export function emailDeBoasVindas(): { assunto: string; html: string; texto: string } {
-  const assunto = 'Bem-vindo a bordo do Adrift';
+export function emailDeBoasVindas(lang = 'pt'): { assunto: string; html: string; texto: string } {
+  const assunto = tr(lang, 'Bem-vindo a bordo do Adrift');
 
   const linhas = [
-    'Estamos muito felizes em tê-lo a bordo.',
-    'Esperamos proporcionar experiências maravilhosas em sua jornada conosco.',
-    'O Adrift ainda está em desenvolvimento, portanto sinta-se à vontade para ' +
-    `informar erros, sugerir melhorias e opinar sobre a sua experiência — é só responder a este e-mail ou escrever para ${CONTATO}.`,
-    'A sua palavra é valiosa para nós.',
+    tr(lang, 'Estamos muito felizes em tê-lo a bordo.'),
+    tr(lang, 'Esperamos proporcionar experiências maravilhosas em sua jornada conosco.'),
+    tr(lang, 'O Adrift ainda está em desenvolvimento, portanto sinta-se à vontade para informar erros, sugerir melhorias e opinar sobre a sua experiência — é só responder a este e-mail ou escrever para {contato}.', { contato: CONTATO }),
+    tr(lang, 'A sua palavra é valiosa para nós.'),
   ];
 
   const texto = [
-    'Caro navegante,', '',
+    tr(lang, 'Caro navegante,'), '',
     ...linhas.flatMap((l) => [l, '']),
-    'Obrigado e até breve.',
-  ].join('\n') + rodapeTexto();
+    tr(lang, 'Obrigado e até breve.'),
+  ].join('\n') + rodapeTexto(lang);
 
   const html = moldar({
-    titulo: 'Bem-vindo a bordo',
+    lang,
+    titulo: tr(lang, 'Bem-vindo a bordo'),
     paragrafos: [
-      'Caro navegante,',
+      tr(lang, 'Caro navegante,'),
       ...linhas,
-      '<strong>Obrigado e até breve.</strong>',
+      `<strong>${tr(lang, 'Obrigado e até breve.')}</strong>`,
     ],
-    botao: { texto: 'Lançar o meu primeiro barco', href: APP_URL },
+    botao: { texto: tr(lang, 'Lançar o meu primeiro barco'), href: APP_URL },
   });
 
   return { assunto, html, texto };
@@ -532,25 +540,33 @@ export function emailDeBoasVindas(): { assunto: string; html: string; texto: str
  * Por isso ele não tem botão. O que a pessoa precisa fazer, se não foi ela, é
  * falar com gente — e o endereço está no rodapé.
  */
-export function emailSenhaAlterada(quando: Date): { assunto: string; html: string; texto: string } {
-  const assunto = 'A sua senha do Adrift foi alterada';
-  const hora = quando.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+export function emailSenhaAlterada(
+  quando: Date, lang = 'pt',
+): { assunto: string; html: string; texto: string } {
+  const assunto = tr(lang, 'A sua senha do Adrift foi alterada');
+  // A hora ia em pt-BR e fuso de Brasília para todo mundo — inútil para quem
+  // lê de outro continente, que é justamente quem precisa reconhecer se foi
+  // ele. Vai no formato e no fuso de quem lê; UTC quando não se sabe o fuso.
+  const hora = quando.toLocaleString(lang, { timeZone: 'UTC', timeZoneName: 'short' });
 
   const texto = [
-    `A senha da sua conta no Adrift foi alterada em ${hora} (horário de Brasília).`,
+    tr(lang, 'A senha da sua conta no Adrift foi alterada em {hora}.', { hora }),
     '',
-    'Se foi você, não precisa fazer nada.',
+    tr(lang, 'Se foi você, não precisa fazer nada.'),
     '',
-    'Se NÃO foi você, alguém teve acesso à sua conta. Escreva para',
-    `${CONTATO} agora — quanto antes, melhor.`,
-  ].join('\n') + rodapeTexto();
+    tr(lang, 'Se NÃO foi você, alguém teve acesso à sua conta. Escreva para'),
+    tr(lang, '{contato} agora — quanto antes, melhor.', { contato: CONTATO }),
+  ].join('\n') + rodapeTexto(lang);
 
   const html = moldar({
-    titulo: 'A sua senha foi alterada',
+    lang,
+    titulo: tr(lang, 'A sua senha foi alterada'),
     paragrafos: [
-      `A senha da sua conta no Adrift foi alterada em <strong>${hora}</strong> (horário de Brasília).`,
-      'Se foi você, não precisa fazer nada.',
-      `<strong>Se não foi você</strong>, alguém teve acesso à sua conta. Escreva para <a href="mailto:${CONTATO}" style="color:#2E86AB">${CONTATO}</a> agora — quanto antes, melhor.`,
+      tr(lang, 'A senha da sua conta no Adrift foi alterada em {hora}.', { hora: `<strong>${hora}</strong>` }),
+      tr(lang, 'Se foi você, não precisa fazer nada.'),
+      tr(lang, 'Se NÃO foi você, alguém teve acesso à sua conta. Escreva para') +
+      ` <a href="mailto:${CONTATO}" style="color:#2E86AB">${CONTATO}</a> ` +
+      tr(lang, 'agora — quanto antes, melhor.'),
     ],
   });
 
@@ -568,27 +584,25 @@ export function emailSenhaAlterada(quando: Date): { assunto: string; html: strin
  * O tom é seco de propósito. Não é hora de simpatia nem de sermão: é hora de
  * dizer o que aconteceu, o que fazer, e até quando.
  */
-export function emailDeBanimento(): { assunto: string; html: string; texto: string } {
-  const assunto = 'A sua conta no Adrift foi suspensa';
+export function emailDeBanimento(lang = 'pt'): { assunto: string; html: string; texto: string } {
+  const assunto = tr(lang, 'A sua conta no Adrift foi suspensa');
 
   const texto = [
-    'A sua conta no Adrift foi suspensa por violação dos Termos de Uso, e os',
-    'seus barcos pararam de navegar.',
+    tr(lang, 'A sua conta no Adrift foi suspensa por violação dos Termos de Uso, e os seus barcos pararam de navegar.'),
     '',
-    'Você pode contestar uma vez, em até 30 dias a partir de hoje, escrevendo',
-    `para ${CONTATO} a partir do e-mail desta conta. Uma pessoa analisa o caso`,
-    'e responde.',
+    tr(lang, 'Você pode contestar uma vez, em até 30 dias a partir de hoje, escrevendo para {contato} a partir do e-mail desta conta. Uma pessoa analisa o caso e responde.', { contato: CONTATO }),
     '',
-    'Se a contestação for aceita, a conta volta como estava. Se não for, a',
-    'decisão é final.',
-  ].join('\n') + rodapeTexto();
+    tr(lang, 'Se a contestação for aceita, a conta volta como estava. Se não for, a decisão é final.'),
+  ].join('\n') + rodapeTexto(lang);
 
   const html = moldar({
-    titulo: 'A sua conta foi suspensa',
+    lang,
+    titulo: tr(lang, 'A sua conta foi suspensa'),
     paragrafos: [
-      'A sua conta no Adrift foi suspensa por violação dos Termos de Uso, e os seus barcos pararam de navegar.',
-      `Você pode contestar <strong>uma vez, em até 30 dias</strong> a partir de hoje, escrevendo para <a href="mailto:${CONTATO}" style="color:#2E86AB">${CONTATO}</a> a partir do e-mail desta conta. Uma pessoa analisa o caso e responde.`,
-      'Se a contestação for aceita, a conta volta como estava. Se não for, a decisão é final.',
+      tr(lang, 'A sua conta no Adrift foi suspensa por violação dos Termos de Uso, e os seus barcos pararam de navegar.'),
+      tr(lang, 'Você pode contestar uma vez, em até 30 dias a partir de hoje, escrevendo para {contato} a partir do e-mail desta conta. Uma pessoa analisa o caso e responde.',
+         { contato: `<a href="mailto:${CONTATO}" style="color:#2E86AB">${CONTATO}</a>` }),
+      tr(lang, 'Se a contestação for aceita, a conta volta como estava. Se não for, a decisão é final.'),
     ],
   });
 
@@ -602,16 +616,19 @@ export function emailDeBanimento(): { assunto: string; html: string; texto: stri
  * que morar num lugar só — foi por isso que esta moldura existe.
  */
 export function emailDeAviso(
-  titulo: string, corpo: string, url?: string, rotuloBotao?: string,
+  titulo: string, corpo: string, url?: string, rotuloBotao?: string, lang = 'pt',
 ): { html: string; texto: string } {
+  // titulo e corpo ja chegam traduzidos: quem chama e o notify.ts, que monta o
+  // aviso a partir do idioma da pessoa. Aqui so a moldura e o botao.
   return {
     html: moldar({
+      lang,
       titulo,
       paragrafos: [corpo],
       botao: url
-        ? { texto: rotuloBotao ?? 'Abrir o Adrift', href: `${APP_URL}${url}` }
+        ? { texto: rotuloBotao ?? tr(lang, 'Abrir o Adrift'), href: `${APP_URL}${url}` }
         : undefined,
     }),
-    texto: corpo + (url ? `\n\n${APP_URL}${url}` : '') + rodapeTexto(),
+    texto: corpo + (url ? `\n\n${APP_URL}${url}` : '') + rodapeTexto(lang),
   };
 }

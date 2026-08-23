@@ -25,6 +25,7 @@
 import { pool } from '../db/pool.js';
 import { config } from '../config/index.js';
 import { enviarEmail, emailDeBanimento } from './mail.js';
+import { idiomaDoUsuario } from './i18n.js';
 
 /**
  * Avisa a pessoa de que foi banida, e que o relógio da contestação começou.
@@ -45,7 +46,7 @@ export async function avisarBanimento(userId: string): Promise<void> {
       [userId],
     );
     if (!rows.length) return;
-    const { assunto, html, texto } = emailDeBanimento();
+    const { assunto, html, texto } = emailDeBanimento(await idiomaDoUsuario(userId));
     await enviarEmail(rows[0].email, assunto, html, texto);
   } catch (err) {
     console.error('[conduta] aviso de banimento falhou para', userId, err);

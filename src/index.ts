@@ -11,6 +11,7 @@ import { demoRoutes } from './routes/demo.js';
 import { publicRoutes } from './routes/public.js';
 import { startScheduler } from './services/scheduler.js';
 import { pool } from './db/pool.js';
+import { tr, idiomaSuportado } from './services/i18n.js';
 import { ensureBots } from './services/bots.js';
 import { captchaLigado } from './services/captcha.js';
 import { webPushLigado } from './services/notify.js';
@@ -86,6 +87,43 @@ app.addHook('preHandler', async (req, reply) => {
       message: 'Você está vendo a conta de outra pessoa. Nesta visão nada pode ser alterado.',
     });
   }
+});
+
+/**
+ * Trava do banimento.
+ *
+ * Até aqui banir alguém tirava o acesso ao LOGIN, e só isso. Como nenhum token
+ * do Adrift expira, quem fosse banido com o app aberto — que é todo mundo, já
+ * que a pessoa estava usando quando aconteceu — seguia lançando barcos e
+ * escrevendo em barcos de estranhos para sempre. Recebia o e-mail de banimento
+ * e o app continuava funcionando. `ban_status` era conferido no login, na
+ * recuperação de senha, no roteamento e no reengajamento; em rota autenticada,
+ * em nenhuma.
+ *
+ * Vale só para quem escreve. Ler não faz mal a ninguém, e quem foi banido
+ * precisa poder abrir o Termo e achar o endereço para contestar — trancar a
+ * leitura seria trancar a porta da defesa. Mesma forma da trava da espiada
+ * logo acima, e pelo mesmo motivo: mora aqui para que rota nova nasça
+ * protegida em vez de nascer aberta.
+ *
+ * Uma consulta por requisição de escrita, na chave primária. Requisição de
+ * escrita é rara perto da de leitura, então o custo fica no ruído.
+ */
+app.addHook('preHandler', async (req, reply) => {
+  const userId = (req as any).user?.id;
+  if (!userId || req.method === 'GET') return;
+
+  const { rows } = await pool.query(
+    `SELECT ban_status, lang FROM users WHERE id = $1`,
+    [userId],
+  );
+  if (rows[0]?.ban_status !== 'banned') return;
+
+  return reply.code(403).send({
+    error: 'conta_suspensa',
+    message: tr(idiomaSuportado(rows[0].lang),
+                'A sua conta está suspensa. Verifique o e-mail que enviamos.'),
+  });
 });
 
 /**
