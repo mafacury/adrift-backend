@@ -294,9 +294,12 @@ export async function botRespondSweep(): Promise<void> {
           // e, de vez em quando, algo a bordo junto da mensagem
           const gift = presenteDeBot();
           const { rows } = await pool.query(
-            `INSERT INTO boat_messages (boat_id, user_id, content, country_code, gift_id)
-             VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-            [entry.boat_id, entry.user_id, content, country, gift],
+            // O idioma vai gravado: é ele que faz a tradução pular a chamada
+            // quando quem lê já fala a língua da mensagem (migração 029).
+            `INSERT INTO boat_messages (boat_id, user_id, content, country_code, gift_id, lang)
+             VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+            [entry.boat_id, entry.user_id, content, country, gift,
+             COUNTRY_LANG[country] ?? null],
           );
           messageId = rows[0].id;
         }

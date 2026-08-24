@@ -12,6 +12,7 @@ import { avisar } from '../services/notify.js';
 import { config } from '../config/index.js';
 import { traduzirMensagens } from '../services/translate.js';
 import { premiarIndicacao } from '../services/indicacao.js';
+import { idiomaDoUsuario } from '../services/i18n.js';
 
 interface CreateBoatBody {
   content: string;
@@ -95,9 +96,9 @@ export async function boatRoutes(app: FastifyInstance) {
         const boatId: string = boatResult.rows[0].id;
 
         const msgResult = await pool.query(
-          `INSERT INTO boat_messages (boat_id, user_id, content, country_code, gift_id)
-           VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-          [boatId, userId, content, countryCode, gift],
+          `INSERT INTO boat_messages (boat_id, user_id, content, country_code, gift_id, lang)
+           VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+          [boatId, userId, content, countryCode, gift, await idiomaDoUsuario(userId)],
         );
         const messageId: string = msgResult.rows[0].id;
 
@@ -169,9 +170,9 @@ export async function boatRoutes(app: FastifyInstance) {
 
         if (content) {
           const msgResult = await pool.query(
-            `INSERT INTO boat_messages (boat_id, user_id, content, country_code, gift_id)
-             VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-            [boatId, userId, content, countryCode, gift],
+            `INSERT INTO boat_messages (boat_id, user_id, content, country_code, gift_id, lang)
+             VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+            [boatId, userId, content, countryCode, gift, await idiomaDoUsuario(userId)],
           );
           messageId = msgResult.rows[0].id;
           // conteúdo novo = assunto vivo: zera o contador de "deixaram passar"
@@ -276,13 +277,18 @@ export async function boatRoutes(app: FastifyInstance) {
       // MESMA ordem da fila (created_at DESC): é o índice que liga cada
       // tradução à mensagem na tela
       const { rows: msgs } = await pool.query(
-        `SELECT content FROM boat_messages
+        `SELECT content, lang FROM boat_messages
           WHERE boat_id = $1
           ORDER BY created_at DESC`,
         [req.params.id],
       );
 
-      const traducoes = await traduzirMensagens(msgs.map(m => m.content as string));
+      // Para o idioma de QUEM LÊ, não para português. O cache já era indexado
+      // por idioma; o que faltava era a instrução saber disso.
+      const traducoes = await traduzirMensagens(
+        msgs.map(m => ({ texto: m.content as string, lang: m.lang as string | null })),
+        await idiomaDoUsuario(userId),
+      );
       return reply.send({ translations: traducoes });
     },
   );
