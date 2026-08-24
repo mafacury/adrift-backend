@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { pool } from '../db/pool.js';
 import { avisarBanimento } from '../services/enforcement.js';
+import { limparCacheDeAjustes } from '../services/ajustes.js';
 
 // Middleware shared by all admin routes
 async function requireAdmin(req: FastifyRequest, reply: FastifyReply) {
@@ -293,6 +294,12 @@ export async function adminRoutes(app: FastifyInstance) {
         [value, key],
       );
       if (!rows.length) return reply.code(404).send({ error: 'configuração não encontrada' });
+
+      // O roteamento guarda estes valores em cache para não consultar o banco
+      // a cada barco. Sem esta linha, girar um botão no painel só teria efeito
+      // um minuto depois — e quem gira ia girar de novo achando que não pegou.
+      limparCacheDeAjustes();
+
       return reply.send({ setting: rows[0] });
     },
   );

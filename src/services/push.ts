@@ -1,5 +1,6 @@
 import { pool } from '../db/pool.js';
 import { config } from '../config/index.js';
+import { ajustesDoFluxo } from './ajustes.js';
 
 /**
  * Notificações push via serviço do Expo (exp.host).
@@ -78,11 +79,9 @@ export function comeBackMessage(): { title: string; body: string } {
 }
 
 /** Mensagem padrão de barco chegando, com o prazo real da fila. */
-export function boatArrivedMessage(): { title: string; body: string } {
-  const mins = config.boat.queueTimeoutMinutes;
-  const prazo = mins >= 60
-    ? `${Math.round(mins / 60)} hora${Math.round(mins / 60) > 1 ? 's' : ''}`
-    : `${mins} minutos`;
+export async function boatArrivedMessage(): Promise<{ title: string; body: string }> {
+  const { prazoRespostaHoras } = await ajustesDoFluxo();
+  const prazo = `${prazoRespostaHoras} hora${prazoRespostaHoras > 1 ? 's' : ''}`;
   return {
     title: '⛵ Um barco chegou para você!',
     body: `Ele traz mensagens do mundo. Você tem ${prazo} para responder antes que siga viagem.`,

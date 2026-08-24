@@ -85,7 +85,7 @@ export async function avisarChegadas(): Promise<void> {
       RETURNING id, user_id`,
     );
     for (const r of rows) {
-      await avisarOuDesmarcar(r.user_id, 'avisado_chegada_at', r.id, avisoChegou());
+      await avisarOuDesmarcar(r.user_id, 'avisado_chegada_at', r.id, await avisoChegou());
     }
     if (rows.length) console.log(`[alerta] ${rows.length} chegada(s) processada(s)`);
   } catch (err) {

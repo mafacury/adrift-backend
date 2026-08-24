@@ -1,17 +1,18 @@
 import { pool } from '../db/pool.js';
 import { config } from '../config/index.js';
 import { STAGE_CASE_SQL } from './progress.js';
+import { ajustesDoFluxo } from './ajustes.js';
 
 // ── Fluxo dos barcos ───────────────────────────────────────────────────────
 // Viagem com distância REAL: tempo = base + km/velocidade (±20% de "maré").
 // Humanos têm prioridade (com proteções anti-enchente); bots são o oceano de
 // reserva que mantém tudo em movimento — a mesma regra serve para 3 usuários
 // ou 30 mil.
-const TRAVEL_BASE_MIN   = 20;    // minutos mínimos de qualquer travessia
-const TRAVEL_KM_PER_MIN = 30;    // "velocidade" do barco
-const TRAVEL_MAX_MIN    = 720;   // teto: meio dia até o outro lado do mundo
-const DEFAULT_KM        = 7000;  // distância padrão quando falta coordenada
-const MAX_PENDING_HUMAN = 2;     // teto de barcos aguardando por humano
+// Estes números são PADRÃO, não lei: o valor que vale vem de
+// `ajustesDoFluxo()`, girável no painel sem deploy (migração 031). O padrão é
+// o que resta quando a chave não existe, não é número, ou o banco está fora —
+// no pior caso o app se comporta como antes de existir painel.
+const DEFAULT_KM = 7000;  // distância padrão quando falta coordenada
 
 /**
  * Cota diária por pessoa — o item de equilíbrio do fluxo.
@@ -26,9 +27,14 @@ const MAX_PENDING_HUMAN = 2;     // teto de barcos aguardando por humano
  * O excedente não se perde — vai para os bots, que existem justamente para ser
  * o oceano de reserva.
  */
-const DAILY_TARGET_HUMAN = 8;
-/** Espaçamento tirado da própria cota: 8 por dia = um a cada 3 h. */
-const ARRIVAL_GAP_MIN = Math.round((24 * 60) / DAILY_TARGET_HUMAN);
+/**
+ * O espaçamento sai da própria cota — 8 por dia é um a cada 3 h. Por isso ele
+ * é calculado e não ajustável: são o mesmo botão visto de dois jeitos, e dois
+ * botões para a mesma coisa é como se acerta um e esquece o outro.
+ */
+function espacamentoMin(barcosPorDia: number): number {
+  return Math.round((24 * 60) / Math.max(1, barcosPorDia));
+}
 
 /**
  * Revisita: um barco pode voltar a quem já o recebeu, desde que a passagem
@@ -70,8 +76,12 @@ export async function travelMinutes(
       km = haversineKm(a.lat, a.lon, b.lat, b.lon);
     }
   }
+  const a = await ajustesDoFluxo();
   const jitter = 0.8 + Math.random() * 0.4; // ±20% de maré
-  return Math.min(TRAVEL_MAX_MIN, Math.round((TRAVEL_BASE_MIN + km / TRAVEL_KM_PER_MIN) * jitter));
+  return Math.min(
+    a.travessiaTetoMin,
+    Math.round((a.travessiaBaseMin + km / a.travessiaKmPorMin) * jitter),
+  );
 }
 
 /** País de destino para um bot: ativo e ainda não visitado (senão, qualquer ativo). */
@@ -96,6 +106,8 @@ export async function pickNextReceiver(boatId: string): Promise<Receiver | null>
   // FASE 1 — humanos elegíveis, priorizando quem está há mais tempo sem
   // receber (anti-seca), com espaçamento entre chegadas e teto de fila
   // (anti-enchente).
+  const ajustes = await ajustesDoFluxo();
+  const gapMin = espacamentoMin(ajustes.barcosPorDia);
   const { rows: humans } = await pool.query(
     `SELECT u.id, u.country_code
      FROM users u
@@ -124,7 +136,7 @@ export async function pickNextReceiver(boatId: string): Promise<Receiver | null>
                         WHERE boat_id = $1 AND status = 'expired')
        -- teto de fila (anti-enchente)
        AND (SELECT COUNT(*) FROM receiver_queue rq2
-            WHERE rq2.user_id = u.id AND rq2.status = 'pending') < ${MAX_PENDING_HUMAN}
+            WHERE rq2.user_id = u.id AND rq2.status = 'pending') < ${ajustes.filaMaxima}
        -- espaçamento entre chegadas (a cota diluída no dia). A janela é dos
        -- dois lados de agora: olhar só "arrives_at > NOW() - gap" barrava por
        -- QUALQUER chegada futura, e como uma travessia leva ~5 h em média, a
@@ -132,13 +144,13 @@ export async function pickNextReceiver(boatId: string): Promise<Receiver | null>
        AND NOT EXISTS (
          SELECT 1 FROM receiver_queue rqg
          WHERE rqg.user_id = u.id
-           AND rqg.arrives_at BETWEEN NOW() - INTERVAL '${ARRIVAL_GAP_MIN} minutes'
-                                  AND NOW() + INTERVAL '${ARRIVAL_GAP_MIN} minutes'
+           AND rqg.arrives_at BETWEEN NOW() - INTERVAL '${gapMin} minutes'
+                                  AND NOW() + INTERVAL '${gapMin} minutes'
        )
        -- teto do dia: o que passar disso vai para o oceano de reserva
        AND (SELECT COUNT(*) FROM receiver_queue rqd
             WHERE rqd.user_id = u.id
-              AND rqd.arrives_at > NOW() - INTERVAL '24 hours') < ${DAILY_TARGET_HUMAN}
+              AND rqd.arrives_at > NOW() - INTERVAL '24 hours') < ${ajustes.barcosPorDia}
      ORDER BY
        (SELECT COALESCE(MAX(arrives_at), TIMESTAMPTZ 'epoch')
         FROM receiver_queue WHERE user_id = u.id) ASC,
@@ -168,7 +180,8 @@ export async function enqueueForReceiver(
   // o barco "navega" travelMin minutos (distância real) antes de atracar;
   // o prazo de resposta só começa a contar quando ele chega (arrives_at)
   const arrivesAt = new Date(Date.now() + opts.travelMin * 60_000);
-  const expiresAt = new Date(arrivesAt.getTime() + config.boat.queueTimeoutMinutes * 60 * 1000);
+  const { prazoRespostaHoras } = await ajustesDoFluxo();
+  const expiresAt = new Date(arrivesAt.getTime() + prazoRespostaHoras * 60 * 60 * 1000);
   await pool.query(
     `INSERT INTO receiver_queue (boat_id, user_id, arrives_at, expires_at, dest_country)
      VALUES ($1, $2, $3, $4, $5)

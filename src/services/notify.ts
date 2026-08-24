@@ -29,6 +29,7 @@ import { pool } from '../db/pool.js';
 import { config } from '../config/index.js';
 import { enviarEmail, emailDeAviso } from './mail.js';
 import { idiomaDoUsuario } from './i18n.js';
+import { ajustesDoFluxo } from './ajustes.js';
 
 let vapidPronto = false;
 export function webPushLigado(): boolean {
@@ -182,10 +183,18 @@ export async function avisar(userId: string, aviso: Aviso): Promise<number> {
 // Ficam juntas para dar para ler a escada inteira de uma vez: cada degrau é mais
 // urgente que o anterior, e é isso que precisa soar certo.
 
-export function avisoChegou(): Aviso {
+/**
+ * O prazo vem do painel, não do texto.
+ *
+ * Antes daqui a frase dizia "12 horas" em letra fixa. Com o prazo virando
+ * botão ajustável (migração 031), um aviso que jura 12 quando o prazo é 24 é
+ * pior do que aviso nenhum: ensina a pessoa a não confiar no que o app diz.
+ */
+export async function avisoChegou(): Promise<Aviso> {
+  const { prazoRespostaHoras } = await ajustesDoFluxo();
   return {
     titulo: '⛵ Um barco atracou no seu porto',
-    corpo: 'Ele traz mensagens de estranhos pelo mundo. Você tem 12 horas para responder antes que ele siga viagem.',
+    corpo: `Ele traz mensagens de estranhos pelo mundo. Você tem ${prazoRespostaHoras} horas para responder antes que ele siga viagem.`,
     url: '/receive',
     tag: 'barco-chegou',
   };
