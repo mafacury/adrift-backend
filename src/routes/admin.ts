@@ -304,6 +304,56 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
+  // ── GET /admin/fila ────────────────────────────────────────────────────────
+  /**
+   * O histórico da fila de uma pessoa — o que chegou, o que virou de cada um.
+   *
+   * Existe por causa de um barco que atracou, mandou a notificação e sumiu uma
+   * hora depois, sem aviso de perda e sem a faixa de "barco passou". Os três
+   * sintomas juntos são de uma causa só, e nenhum caminho do código explicava:
+   * a resposta estava no dado, e não havia como olhar o dado.
+   *
+   * `status` conta a história inteira:
+   *   pending    ainda com a pessoa
+   *   delivered  respondeu (ou o bot respondeu, se for bot)
+   *   skipped    deixou passar
+   *   expired    venceu o prazo
+   *   (some)     a linha não existe mais — barco apagado leva a fila junto
+   */
+  app.get<{ Querystring: { email?: string; limite?: string } }>(
+    '/admin/fila',
+    async (req, reply) => {
+      const email = (req.query.email ?? '').trim().toLowerCase();
+      if (!email) return reply.code(400).send({ error: 'informe ?email=' });
+
+      const limite = Math.min(100, parseInt(req.query.limite ?? '30', 10));
+
+      const { rows: quem } = await pool.query(
+        `SELECT id, email, country_code, lang, ban_status, receiving_paused,
+                last_active_at, created_at
+           FROM users WHERE LOWER(email) = $1`,
+        [email],
+      );
+      if (!quem.length) return reply.code(404).send({ error: 'usuário não encontrado' });
+
+      const { rows: fila } = await pool.query(
+        `SELECT rq.id, rq.boat_id, rq.status,
+                rq.queued_at, rq.arrives_at, rq.expires_at,
+                rq.avisado_chegada_at, rq.avisado_prazo_at, rq.avisado_perda_at,
+                b.status AS boat_status, b.archive_reason, b.stage,
+                (SELECT COUNT(*)::int FROM boat_messages m WHERE m.boat_id = rq.boat_id) AS mensagens
+           FROM receiver_queue rq
+           LEFT JOIN boats b ON b.id = rq.boat_id
+          WHERE rq.user_id = $1
+          ORDER BY rq.queued_at DESC
+          LIMIT $2`,
+        [quem[0].id, limite],
+      );
+
+      return reply.send({ usuario: quem[0], fila });
+    },
+  );
+
   // ── GET /admin/countries ───────────────────────────────────────────────────
   // Lista dos 195 países participantes (barcos só "carimbam" países ativos)
   app.get('/admin/countries', async (_req, reply) => {
