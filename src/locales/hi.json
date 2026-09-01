@@ -431,5 +431,6 @@
   "Entendi": "समझ गया",
   "O servidor demorou demais para responder. Tente de novo.": "सर्वर को उत्तर देने में बहुत अधिक समय लगा। फिर से प्रयास करें।",
   "mensagens": "संदेश",
-  "Países": "देश"
+  "Países": "देश",
+  "Seu próximo barco: {nome}": "आपकी अगली नाव: {nome}"
 }

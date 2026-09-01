@@ -431,5 +431,6 @@
   "Entendi": "فهمت",
   "O servidor demorou demais para responder. Tente de novo.": "استغرق الخادم وقتًا طويلاً للرد. حاول مرة أخرى.",
   "mensagens": "رسائل",
-  "Países": "البلدان"
+  "Países": "البلدان",
+  "Seu próximo barco: {nome}": "قاربك التالي: {nome}"
 }

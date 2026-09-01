@@ -431,5 +431,6 @@
   "Entendi": "Compris",
   "O servidor demorou demais para responder. Tente de novo.": "Le serveur a mis trop de temps à répondre. Veuillez réessayer.",
   "mensagens": "messages",
-  "Países": "Pays"
+  "Países": "Pays",
+  "Seu próximo barco: {nome}": "Votre prochain bateau : {nome}"
 }

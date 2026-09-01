@@ -431,5 +431,6 @@
   "Entendi": "Got it",
   "O servidor demorou demais para responder. Tente de novo.": "The server took too long to respond. Try again.",
   "mensagens": "messages",
-  "Países": "Countries"
+  "Países": "Countries",
+  "Seu próximo barco: {nome}": "Your next boat: {nome}"
 }

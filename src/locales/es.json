@@ -431,5 +431,6 @@
   "Entendi": "Entendido",
   "O servidor demorou demais para responder. Tente de novo.": "El servidor tardó demasiado en responder. Intenta de nuevo.",
   "mensagens": "mensajes",
-  "Países": "Países"
+  "Países": "Países",
+  "Seu próximo barco: {nome}": "Tu próximo barco: {nome}"
 }
