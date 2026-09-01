@@ -14,6 +14,7 @@ import { pool } from './db/pool.js';
 import { tr, idiomaSuportado } from './services/i18n.js';
 import { ensureBots } from './services/bots.js';
 import { captchaLigado } from './services/captcha.js';
+import { conferirIA, estadoDaIA } from './services/moderation.js';
 import { webPushLigado } from './services/notify.js';
 import { envioRealLigado, smtpLigado, conferirSmtp, estadoDoSmtp, sondaDePortas, conferirResend, estadoDoResend } from './services/mail.js';
 
@@ -188,6 +189,11 @@ app.get('/health', async () => ({
     remetente: process.env.MAIL_FROM ?? '(padrão)',
     webpush: webPushLigado(),
   },
+  // A IA sustenta TRÊS coisas de uma vez: a moderação, o banimento automático
+  // (que conta rejeições da moderação) e o botão Traduzir. Quando a chave cai,
+  // as três caem juntas e nenhuma reclama — antes daqui, descobrir exigia
+  // caçar uma linha no log do Railway.
+  ia: estadoDaIA(),
 }));
 
 /**
@@ -217,6 +223,7 @@ if (!webPushLigado()) {
 // mesmo e /health conta o resultado quando ele chegar.
 void conferirSmtp();
 void conferirResend();
+void conferirIA();
 if (envioRealLigado()) {
   console.log(`[avisos] e-mail ligado por ${smtpLigado() ? 'SMTP (' + process.env.SMTP_HOST + ')' : 'Resend'}`);
 } else {

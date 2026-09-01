@@ -127,3 +127,52 @@ export async function moderate(
 
   return { verdict, layer: 2, detail: reason };
 }
+
+// ── Está de pé? ──────────────────────────────────────────────────────────────
+
+type EstadoIA = 'ok' | 'chave-invalida' | 'nao-configurada' | 'erro' | 'nao-conferido';
+let estadoIA: EstadoIA = 'nao-conferido';
+let motivoIA = '';
+
+export function estadoDaIA(): { estado: EstadoIA; motivo: string } {
+  return { estado: estadoIA, motivo: motivoIA };
+}
+
+/**
+ * Confere a chave da Anthropic no boot e guarda o resultado para o /health.
+ *
+ * Existe porque descobrir que a IA está fora exigia caçar a linha
+ * "[moderation] IA INDISPONIVEL" no log do Railway — e enquanto ninguém caça,
+ * o app fica sem moderação, sem banimento automático (que conta rejeições da
+ * moderação) e sem o botão Traduzir, tudo em silêncio. Três coisas caem juntas
+ * e nenhuma reclama.
+ *
+ * Usa `count_tokens`, que não gera resposta nem custa nada: só quer saber se a
+ * chave é aceita. 401 é chave inválida; qualquer 2xx é chave boa.
+ */
+export async function conferirIA(): Promise<void> {
+  const chave = config.anthropicApiKey?.trim();
+  if (!chave) { estadoIA = 'nao-configurada'; return; }
+
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages/count_tokens', {
+      method: 'POST',
+      headers: {
+        'x-api-key': chave,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5',
+        messages: [{ role: 'user', content: 'ping' }],
+      }),
+    });
+    if (r.ok)            { estadoIA = 'ok'; motivoIA = ''; }
+    else if (r.status === 401) { estadoIA = 'chave-invalida'; motivoIA = 'a API recusou a chave (401)'; }
+    else                 { estadoIA = 'erro'; motivoIA = `HTTP ${r.status}`; }
+  } catch (err: any) {
+    estadoIA = 'erro';
+    motivoIA = err?.message ?? 'falha de rede';
+  }
+  console.log(`[ia] ${estadoIA}${motivoIA ? ' — ' + motivoIA : ''}`);
+}
