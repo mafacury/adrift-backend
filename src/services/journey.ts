@@ -15,6 +15,7 @@
 import { pool } from '../db/pool.js';
 import { haversineKm } from './routing.js';
 import { avisar, avisoVoltouParaCasa } from './notify.js';
+import { idiomaDoUsuario } from './i18n.js';
 
 // A volta é uma travessia DIRETA, com vento a favor — por isso mais rápida
 // que o vaguear porto a porto do routing.ts (20min + km/30, teto de 12h).
@@ -163,7 +164,7 @@ async function archiveBoat(boatId: string): Promise<void> {
       paises: b.unique_countries ?? 0,
       milhas: Math.round(nm),
       mensagens: m[0]?.n ?? 0,
-    }));
+    }, await idiomaDoUsuario(b.creator_user_id)));
   } catch (err) {
     console.error(`[journey] falhou ao avisar a volta do barco ${boatId}:`, err);
   }

@@ -28,6 +28,7 @@
 import { pool } from '../db/pool.js';
 import { config } from '../config/index.js';
 import { avisar, avisoChegou, avisoPrazo, avisoPerdeu } from './notify.js';
+import { idiomaDoUsuario } from './i18n.js';
 
 /**
  * Manda e, se falhou, devolve a linha para a fila de avisos.
@@ -85,7 +86,8 @@ export async function avisarChegadas(): Promise<void> {
       RETURNING id, user_id`,
     );
     for (const r of rows) {
-      await avisarOuDesmarcar(r.user_id, 'avisado_chegada_at', r.id, await avisoChegou());
+      await avisarOuDesmarcar(r.user_id, 'avisado_chegada_at', r.id,
+                              await avisoChegou(await idiomaDoUsuario(r.user_id)));
     }
     if (rows.length) console.log(`[alerta] ${rows.length} chegada(s) processada(s)`);
   } catch (err) {
@@ -116,7 +118,8 @@ export async function avisarPrazo(): Promise<void> {
       [String(horas)],
     );
     for (const r of rows) {
-      await avisarOuDesmarcar(r.user_id, 'avisado_prazo_at', r.id, avisoPrazo(horas));
+      await avisarOuDesmarcar(r.user_id, 'avisado_prazo_at', r.id,
+                              avisoPrazo(horas, await idiomaDoUsuario(r.user_id)));
     }
     if (rows.length) console.log(`[alerta] ${rows.length} aviso(s) de prazo`);
   } catch (err) {
@@ -157,7 +160,7 @@ export async function avisarPerdas(): Promise<void> {
     // marca, e `dest_country` só é preenchido quando o receptor é bot — ou
     // seja, é sempre nulo justamente para a pessoa que perdeu o barco.
     // Melhor uma frase honesta que um destino inventado.
-    for (const r of rows) await avisar(r.user_id, avisoPerdeu());
+    for (const r of rows) await avisar(r.user_id, avisoPerdeu(await idiomaDoUsuario(r.user_id)));
     if (rows.length) console.log(`[alerta] ${rows.length} perda(s) avisada(s)`);
   } catch (err) {
     console.error('[alerta] perdas', err);

@@ -28,7 +28,7 @@ import webpush from 'web-push';
 import { pool } from '../db/pool.js';
 import { config } from '../config/index.js';
 import { enviarEmail, emailDeAviso } from './mail.js';
-import { idiomaDoUsuario } from './i18n.js';
+import { idiomaDoUsuario, tr } from './i18n.js';
 import { ajustesDoFluxo } from './ajustes.js';
 
 let vapidPronto = false;
@@ -190,22 +190,27 @@ export async function avisar(userId: string, aviso: Aviso): Promise<number> {
  * botão ajustável (migração 031), um aviso que jura 12 quando o prazo é 24 é
  * pior do que aviso nenhum: ensina a pessoa a não confiar no que o app diz.
  */
-export async function avisoChegou(): Promise<Aviso> {
+export async function avisoChegou(lang = 'pt'): Promise<Aviso> {
   const { prazoRespostaHoras } = await ajustesDoFluxo();
   return {
-    titulo: '⛵ Um barco atracou no seu porto',
-    corpo: `Ele traz mensagens de estranhos pelo mundo. Você tem ${prazoRespostaHoras} horas para responder antes que ele siga viagem.`,
+    titulo: tr(lang, '⛵ Um barco atracou no seu porto'),
+    corpo: tr(lang, 'Ele traz mensagens de estranhos pelo mundo. Você tem {n} horas para responder antes que ele siga viagem.',
+              { n: prazoRespostaHoras }),
     url: '/receive',
     tag: 'barco-chegou',
   };
 }
 
-export function avisoPrazo(horas: number): Aviso {
+export function avisoPrazo(horas: number, lang = 'pt'): Aviso {
   return {
-    titulo: '⏳ O barco vai zarpar',
-    corpo: `Falta${horas === 1 ? '' : 'm'} ${horas} hora${horas === 1 ? '' : 's'} para o barco seguir viagem sem a sua mensagem. Ainda dá tempo.`,
+    titulo: tr(lang, '⏳ O barco vai zarpar'),
+    // Duas chaves em vez de costurar o "m" e o "s" na frase: a regra de plural
+    // do português não é a de nenhum dos outros sete idiomas.
+    corpo: horas === 1
+      ? tr(lang, 'Falta 1 hora para o barco seguir viagem sem a sua mensagem. Ainda dá tempo.')
+      : tr(lang, 'Faltam {n} horas para o barco seguir viagem sem a sua mensagem. Ainda dá tempo.', { n: horas }),
     url: '/receive',
-    rotuloBotao: 'Responder agora',
+    rotuloBotao: tr(lang, 'Responder agora'),
     tag: 'barco-prazo',
     // Este é o que dói perder — é o último aviso antes de o barco ir embora.
     porEmail: true,
@@ -227,37 +232,44 @@ export function avisoPrazo(horas: number): Aviso {
  */
 export function avisoVoltouParaCasa(d: {
   motivo: string; paises: number; milhas: number; mensagens: number;
-}): Aviso {
-  const numeros =
-    `${d.paises} ${d.paises === 1 ? 'país' : 'países'}, ` +
-    `${d.milhas.toLocaleString('pt-BR')} milhas náuticas e ` +
-    `${d.mensagens} ${d.mensagens === 1 ? 'mensagem' : 'mensagens'} de estranhos`;
+}, lang = 'pt'): Aviso {
+  // Cada número é uma peça traduzível inteira, e a frase que as costura tem os
+  // três como marcadores nomeados — assim cada idioma põe vírgula, "e" e ordem
+  // onde a sua gramática manda, em vez de herdar a do português.
+  const paises = d.paises === 1
+    ? tr(lang, '{n} país', { n: d.paises })
+    : tr(lang, '{n} países', { n: d.paises });
+  const milhas = tr(lang, '{n} milhas náuticas', { n: d.milhas.toLocaleString(lang) });
+  const mensagens = d.mensagens === 1
+    ? tr(lang, '{n} mensagem de estranhos', { n: d.mensagens })
+    : tr(lang, '{n} mensagens de estranhos', { n: d.mensagens });
 
   const abertura: Record<string, string> = {
-    lendaria: 'Ele deu a volta ao mundo e voltou. Nau Lendária — o fim mais alto que uma jornada pode ter.',
-    chamado:  'Você o chamou de volta, e ele atracou.',
-    esgotado: 'O assunto se esgotou pelo caminho e ele voltou para casa.',
-    perdido:  'Ele passou tempo demais sem que ninguém o recolhesse e voltou sozinho.',
-    moderado: 'A jornada foi encerrada pela moderação, e ele voltou para casa.',
+    lendaria: tr(lang, 'Ele deu a volta ao mundo e voltou. Nau Lendária — o fim mais alto que uma jornada pode ter.'),
+    chamado:  tr(lang, 'Você o chamou de volta, e ele atracou.'),
+    esgotado: tr(lang, 'O assunto se esgotou pelo caminho e ele voltou para casa.'),
+    perdido:  tr(lang, 'Ele passou tempo demais sem que ninguém o recolhesse e voltou sozinho.'),
+    moderado: tr(lang, 'A jornada foi encerrada pela moderação, e ele voltou para casa.'),
   };
 
   return {
-    titulo: '⚓ O seu barco voltou para casa',
+    titulo: tr(lang, '⚓ O seu barco voltou para casa'),
     corpo:
-      `${abertura[d.motivo] ?? 'Ele atracou de volta no seu porto.'} ` +
-      `Nesta viagem foram ${numeros}. Tudo o que ele trouxe está guardado — ` +
-      'as palavras, os portos e os presentes.',
+      `${abertura[d.motivo] ?? tr(lang, 'Ele atracou de volta no seu porto.')} ` +
+      tr(lang, 'Nesta viagem foram {paises}, {milhas} e {mensagens}.',
+         { paises, milhas, mensagens }) + ' ' +
+      tr(lang, 'Tudo o que ele trouxe está guardado — as palavras, os portos e os presentes.'),
     url: '/museu',
-    rotuloBotao: 'Ver o quadro no Museu',
+    rotuloBotao: tr(lang, 'Ver o quadro no Museu'),
     tag: 'barco-em-casa',
     porEmail: true,
   };
 }
 
-export function avisoPerdeu(): Aviso {
+export function avisoPerdeu(lang = 'pt'): Aviso {
   return {
-    titulo: '🌊 O barco seguiu viagem',
-    corpo: 'O prazo acabou e ele partiu para outro porto. Outro vai chegar — o mar não para.',
+    titulo: tr(lang, '🌊 O barco seguiu viagem'),
+    corpo: tr(lang, 'O prazo acabou e ele partiu para outro porto. Outro vai chegar — o mar não para.'),
     url: '/map',
     tag: 'barco-perdido',
   };
