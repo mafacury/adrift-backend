@@ -167,9 +167,21 @@ export async function conferirIA(): Promise<void> {
         messages: [{ role: 'user', content: 'ping' }],
       }),
     });
-    if (r.ok)            { estadoIA = 'ok'; motivoIA = ''; }
-    else if (r.status === 401) { estadoIA = 'chave-invalida'; motivoIA = 'a API recusou a chave (401)'; }
-    else                 { estadoIA = 'erro'; motivoIA = `HTTP ${r.status}`; }
+    if (r.ok) {
+      estadoIA = 'ok';
+      motivoIA = '';
+    } else if (r.status === 401) {
+      estadoIA = 'chave-invalida';
+      motivoIA = 'a API recusou a chave (401)';
+    } else {
+      // Qualquer coisa que NÃO seja 401 já prova que a chave foi aceita — a
+      // autenticação acontece antes da validação do corpo. Vale distinguir:
+      // "a chave está boa e a minha pergunta é que estava torta" é uma
+      // notícia completamente diferente de "a chave caiu".
+      const corpo = await r.text().catch(() => '');
+      estadoIA = r.status === 400 ? 'ok' : 'erro';
+      motivoIA = `HTTP ${r.status}${r.status === 400 ? ' — chave aceita' : ''}: ${corpo.slice(0, 200)}`;
+    }
   } catch (err: any) {
     estadoIA = 'erro';
     motivoIA = err?.message ?? 'falha de rede';
