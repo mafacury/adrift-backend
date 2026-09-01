@@ -134,7 +134,21 @@ type EstadoIA = 'ok' | 'chave-invalida' | 'sem-credito' | 'nao-configurada' | 'e
 let estadoIA: EstadoIA = 'nao-conferido';
 let motivoIA = '';
 
+/** Quando a última conferência rodou. */
+let conferidoEm = 0;
+const REPETIR_MS = 10 * 60_000;
+
+/**
+ * O estado da IA — e uma nova conferência quando ela está quebrada.
+ *
+ * Conferir só no boot tem um efeito ruim justamente na hora que importa: quem
+ * acabou de pôr crédito recarrega o /health, continua lendo "sem-credito" (a
+ * resposta é a do boot) e conclui que não adiantou. Enquanto NÃO estiver ok,
+ * uma nova tentativa a cada 10 min; estando ok, nunca mais — chave boa não
+ * precisa ser reconferida, e cada tentativa é uma chamada à API.
+ */
 export function estadoDaIA(): { estado: EstadoIA; motivo: string } {
+  if (estadoIA !== 'ok' && Date.now() - conferidoEm > REPETIR_MS) void conferirIA();
   return { estado: estadoIA, motivo: motivoIA };
 }
 
@@ -197,5 +211,6 @@ export async function conferirIA(): Promise<void> {
     estadoIA = 'erro';
     motivoIA = err?.message ?? 'falha de rede';
   }
+  conferidoEm = Date.now();
   console.log(`[ia] ${estadoIA}${motivoIA ? ' — ' + motivoIA : ''}`);
 }
