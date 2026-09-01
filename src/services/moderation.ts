@@ -130,7 +130,7 @@ export async function moderate(
 
 // ── Está de pé? ──────────────────────────────────────────────────────────────
 
-type EstadoIA = 'ok' | 'chave-invalida' | 'nao-configurada' | 'erro' | 'nao-conferido';
+type EstadoIA = 'ok' | 'chave-invalida' | 'sem-credito' | 'nao-configurada' | 'erro' | 'nao-conferido';
 let estadoIA: EstadoIA = 'nao-conferido';
 let motivoIA = '';
 
@@ -179,8 +179,19 @@ export async function conferirIA(): Promise<void> {
       // "a chave está boa e a minha pergunta é que estava torta" é uma
       // notícia completamente diferente de "a chave caiu".
       const corpo = await r.text().catch(() => '');
-      estadoIA = r.status === 400 ? 'ok' : 'erro';
-      motivoIA = `HTTP ${r.status}${r.status === 400 ? ' — chave aceita' : ''}: ${corpo.slice(0, 200)}`;
+
+      // Saldo zerado é o caso que enganou por dias: a chave é ACEITA (não dá
+      // 401), mas nenhuma chamada de verdade passa. Chamar isso de "ok" seria
+      // pior que não ter conferência nenhuma — um painel que jura que está
+      // tudo bem enquanto a moderação, o banimento automático e o botão
+      // Traduzir estão todos parados.
+      if (/credit balance/i.test(corpo)) {
+        estadoIA = 'sem-credito';
+        motivoIA = 'a chave é válida, mas a conta da Anthropic está sem saldo';
+      } else {
+        estadoIA = 'erro';
+        motivoIA = `HTTP ${r.status}: ${corpo.slice(0, 200)}`;
+      }
     }
   } catch (err: any) {
     estadoIA = 'erro';
