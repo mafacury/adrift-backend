@@ -9,10 +9,71 @@ import { agradecer, fraseValida, recadosDe, marcarRecadosLidos, jaAgradecidos } 
 import { webPushLigado } from '../services/notify.js';
 import { config } from '../config/index.js';
 import { codigoDeConvite, placarDeConvites } from '../services/indicacao.js';
+import bcrypt from 'bcryptjs';
+import { excluirConta } from '../services/exclusao.js';
+import { idiomaSuportado, tr } from '../services/i18n.js';
 
 let cacheTextos: { at: number; mapa: Record<string, string> } | null = null;
 
 export async function userRoutes(app: FastifyInstance) {
+
+  // ── DELETE /users/me ───────────────────────────────────────────────────────
+  /**
+   * A pessoa apaga a própria conta.
+   *
+   * Exige a SENHA, e não só o token. Token do Adrift não expira: um aparelho
+   * esquecido aberto, ou um token copiado, poderia apagar a conta de alguém
+   * sem que essa pessoa soubesse. A senha é a prova de que quem pede é quem é.
+   *
+   * O que a exclusão faz — e por que não é um DELETE — está em
+   * services/exclusao.ts. Resumo: anonimiza, arquiva os barcos, e deixa nos
+   * barcos as mensagens que estranhos já receberam, como o Termo promete.
+   */
+  app.delete<{ Body: { password?: string } }>(
+    '/users/me',
+    {
+      schema: {
+        body: { type: 'object', required: ['password'], properties: {
+          password: { type: 'string', minLength: 1, maxLength: 200 },
+        } },
+      },
+      // roda bcrypt: mesmo teto das outras rotas que rodam
+      config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    },
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+
+      const { rows } = await pool.query(
+        `SELECT password_hash, lang FROM users WHERE id = $1 AND deleted_at IS NULL`,
+        [userId],
+      );
+      if (!rows.length) return reply.code(404).send({ error: 'not_found' });
+
+      const lang = idiomaSuportado(rows[0].lang);
+
+      if (!rows[0].password_hash) {
+        // Conta de Google não tem senha para conferir. Não dá para provar quem
+        // é pelo caminho normal, então este pedido vai pelo e-mail — que é o
+        // que o Termo já diz e o que permite conferir a identidade.
+        return reply.code(400).send({
+          error: 'sem_senha',
+          message: tr(lang, 'Esta conta entra pelo Google. Para excluí-la, escreva para contact@adriftapp.fun a partir do e-mail da conta.'),
+        });
+      }
+
+      const confere = await bcrypt.compare(req.body.password ?? '', rows[0].password_hash);
+      if (!confere) {
+        return reply.code(401).send({
+          error: 'senha_incorreta',
+          message: tr(lang, 'Senha incorreta.'),
+        });
+      }
+
+      await excluirConta(userId);
+      return reply.send({ status: 'ok' });
+    },
+  );
 
   // ── GET /users/me/convite ──────────────────────────────────────────────────
   /**

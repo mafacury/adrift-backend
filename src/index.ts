@@ -107,22 +107,44 @@ app.addHook('preHandler', async (req, reply) => {
  * logo acima, e pelo mesmo motivo: mora aqui para que rota nova nasça
  * protegida em vez de nascer aberta.
  *
- * Uma consulta por requisição de escrita, na chave primária. Requisição de
- * escrita é rara perto da de leitura, então o custo fica no ruído.
+ * Uma consulta por requisição autenticada, na chave primária. Antes rodava só
+ * na escrita, porque só o banimento importava e banido pode ler. A exclusão
+ * mudou isso: quem apagou a conta não pode nem ler, e o token dela continua
+ * válido — token do Adrift não expira. O custo é uma busca por chave primária,
+ * que nesta escala fica no ruído; se um dia pesar, um cache curto de ids
+ * apagados resolve sem tocar no resto.
  */
 app.addHook('preHandler', async (req, reply) => {
   const userId = (req as any).user?.id;
-  if (!userId || req.method === 'GET') return;
+  if (!userId) return;
 
   const { rows } = await pool.query(
-    `SELECT ban_status, lang FROM users WHERE id = $1`,
+    `SELECT ban_status, lang, deleted_at FROM users WHERE id = $1`,
     [userId],
   );
-  if (rows[0]?.ban_status !== 'banned') return;
+  const u = rows[0];
+  if (!u) return;
+
+  // Conta apagada: nada passa, nem leitura. Diferente do banimento, onde ler
+  // continua liberado para a pessoa poder abrir o Termo e contestar — aqui
+  // não há o que contestar, foi ela quem pediu. E o token dela continua
+  // válido, porque token do Adrift não expira: sem esta trava, quem apagou a
+  // conta seguiria dentro do app até fechar a aba.
+  if (u.deleted_at) {
+    return reply.code(403).send({
+      error: 'conta_excluida',
+      message: tr(idiomaSuportado(u.lang), 'Esta conta foi excluída a seu pedido.'),
+    });
+  }
+
+  // O banimento vale só para quem ESCREVE. Ler não faz mal a ninguém, e quem
+  // foi banido precisa poder abrir o Termo e achar o endereço para contestar —
+  // trancar a leitura seria trancar a porta da defesa.
+  if (u.ban_status !== 'banned' || req.method === 'GET') return;
 
   return reply.code(403).send({
     error: 'conta_suspensa',
-    message: tr(idiomaSuportado(rows[0].lang),
+    message: tr(idiomaSuportado(u.lang),
                 'A sua conta está suspensa. Verifique o e-mail que enviamos.'),
   });
 });

@@ -6,7 +6,7 @@ import { countryFromIp } from '../services/geo.js';
 import { enviarEmail, emailDeRecuperacao, emailDeVerificacao, emailSenhaAlterada, emailDeBoasVindas } from '../services/mail.js';
 import { verificarCaptcha } from '../services/captcha.js';
 import { config } from '../config/index.js';
-import { idiomaSuportado, idiomaDoUsuario } from '../services/i18n.js';
+import { idiomaSuportado, idiomaDoUsuario, tr } from '../services/i18n.js';
 import { donoDoCodigo } from '../services/indicacao.js';
 
 interface RegisterBody {
@@ -228,7 +228,7 @@ export async function authRoutes(app: FastifyInstance) {
       const { email, password } = req.body;
 
       const { rows } = await pool.query(
-        `SELECT id, email, password_hash, ban_status, role, email_verified
+        `SELECT id, email, password_hash, ban_status, role, email_verified, deleted_at
            FROM users WHERE email = $1`,
         [email.toLowerCase()],
       );
@@ -251,6 +251,18 @@ export async function authRoutes(app: FastifyInstance) {
         return reply.code(403).send({
           error: 'email_nao_verificado',
           message: 'Confirme o seu e-mail para entrar. Acabamos de reenviar o link.',
+        });
+      }
+
+      // Conta apagada vem ANTES da checagem de senha: a anonimização zera o
+      // password_hash, e sem isto a pessoa ouviria "esta conta usa login com
+      // Google" — uma resposta errada e confusa para quem pediu para sumir.
+      if (user.deleted_at) {
+        return reply.code(401).send({
+          error: 'conta_excluida',
+          // sem idioma aqui de propósito: a anonimização apaga `lang`, então
+          // não há o que consultar — quem apagou a conta não tem mais perfil
+          message: 'Esta conta foi excluída a seu pedido.',
         });
       }
 
