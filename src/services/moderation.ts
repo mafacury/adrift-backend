@@ -56,25 +56,67 @@ export async function moderateWithAI(
 
   const response = await client.messages.create({
     model: 'claude-haiku-4-5',
-    max_tokens: 128,
+    // Era 128, e 128 é apertado: o JSON mais uma frase de motivo em português
+    // ou japonês passa disso com facilidade. Estourado o teto, a resposta é
+    // cortada no meio da string, o JSON.parse quebra, e um barco de conteúdo
+    // inocente fica parado esperando revisão humana por um motivo que não
+    // tem nada a ver com o que a pessoa escreveu.
+    max_tokens: 400,
     system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: userMessage }],
+    messages: [
+      { role: 'user', content: userMessage },
+      // Começar a resposta do modelo com `{` obriga o JSON e mata de uma vez a
+      // outra causa clássica: cerca de markdown ou uma frase de apresentação
+      // antes do objeto.
+      { role: 'assistant', content: '{' },
+    ],
   });
 
-  const raw = response.content[0].type === 'text' ? response.content[0].text : '';
+  const texto = response.content[0]?.type === 'text' ? response.content[0].text : '';
+  const raw = `{${texto}`;
 
-  try {
-    const parsed = JSON.parse(raw) as { verdict: ModerationVerdict; reason: string };
+  const parsed = lerVeredito(raw);
+  if (parsed) {
     if (!['approved', 'rejected', 'uncertain'].includes(parsed.verdict)) {
       return { verdict: 'uncertain', reason: 'AI returned unexpected verdict' };
     }
     return parsed;
-  } catch {
-    // Resposta veio mas não era o JSON esperado: isso É um veredito incerto,
-    // diferente de a API não ter respondido — esse caso lança e é tratado em
-    // moderate(), que decide se o barco segue com meia checagem.
-    return { verdict: 'uncertain', reason: 'AI response could not be parsed' };
   }
+
+  // Falhou mesmo assim. Antes esta linha jogava fora a única prova do que
+  // aconteceu e gravava só "could not be parsed" — foi por isso que a causa
+  // teve de ser adivinhada quando os primeiros barcos ficaram parados. Agora
+  // o texto cru vai para o log e para o motivo, truncado.
+  const amostra = raw.replace(/\s+/g, ' ').slice(0, 160);
+  console.error(`[moderation] resposta ilegível (stop=${response.stop_reason}): ${amostra}`);
+  return {
+    verdict: 'uncertain',
+    reason: `AI response could not be parsed (stop=${response.stop_reason}): ${amostra}`,
+  };
+}
+
+/**
+ * Ler o veredito de uma resposta que deveria ser JSON e às vezes não é.
+ *
+ * Duas tentativas, da mais estrita para a mais tolerante: o texto inteiro, e
+ * depois o primeiro `{` até o último `}` — que resgata a resposta embrulhada
+ * em cerca de markdown ou precedida de uma frase.
+ */
+function lerVeredito(raw: string): { verdict: ModerationVerdict; reason: string } | null {
+  const tentativas = [raw.trim()];
+  const abre = raw.indexOf('{');
+  const fecha = raw.lastIndexOf('}');
+  if (abre >= 0 && fecha > abre) tentativas.push(raw.slice(abre, fecha + 1));
+
+  for (const t of tentativas) {
+    try {
+      const o = JSON.parse(t);
+      if (o && typeof o.verdict === 'string') {
+        return { verdict: o.verdict, reason: String(o.reason ?? '') };
+      }
+    } catch { /* tenta a próxima */ }
+  }
+  return null;
 }
 
 // ── Public function ──────────────────────────────────────────────────────────
