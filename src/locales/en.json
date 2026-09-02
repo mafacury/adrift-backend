@@ -443,5 +443,9 @@
   "Não foi possível excluir agora. Tente de novo.": "Could not delete right now. Please try again.",
   "Senha incorreta.": "Incorrect password.",
   "Esta conta foi excluída a seu pedido.": "This account was deleted at your request.",
-  "Esta conta entra pelo Google. Para excluí-la, escreva para contact@adriftapp.fun a partir do e-mail da conta.": "This account signs in with Google. To delete it, write to contact@adriftapp.fun from the account's email address."
+  "Esta conta entra pelo Google. Para excluí-la, escreva para contact@adriftapp.fun a partir do e-mail da conta.": "This account signs in with Google. To delete it, write to contact@adriftapp.fun from the account's email address.",
+  "Senha": "Password",
+  "Email": "Email",
+  "toque na tesoura": "tap the scissors",
+  "Li e aceito os Termos de Uso. Sei que conteúdo ofensivo, xenófobo ou inadequado de qualquer natureza causa banimento permanente da conta.": "I have read and accept the Terms of Use. I understand that offensive, xenophobic or otherwise inappropriate content means a permanent ban."
 }

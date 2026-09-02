@@ -443,5 +443,9 @@
   "Não foi possível excluir agora. Tente de novo.": "Impossible de supprimer pour le moment. Réessayez.",
   "Senha incorreta.": "Mot de passe incorrect.",
   "Esta conta foi excluída a seu pedido.": "Ce compte a été supprimé à votre demande.",
-  "Esta conta entra pelo Google. Para excluí-la, escreva para contact@adriftapp.fun a partir do e-mail da conta.": "Ce compte utilise la connexion Google. Pour le supprimer, écrivez à contact@adriftapp.fun depuis l'adresse e-mail du compte."
+  "Esta conta entra pelo Google. Para excluí-la, escreva para contact@adriftapp.fun a partir do e-mail da conta.": "Ce compte utilise la connexion Google. Pour le supprimer, écrivez à contact@adriftapp.fun depuis l'adresse e-mail du compte.",
+  "Senha": "Mot de passe",
+  "Email": "E-mail",
+  "toque na tesoura": "touchez les ciseaux",
+  "Li e aceito os Termos de Uso. Sei que conteúdo ofensivo, xenófobo ou inadequado de qualquer natureza causa banimento permanente da conta.": "J'ai lu et j'accepte les Conditions d'utilisation. Je comprends que tout contenu offensant, xénophobe ou inapproprié entraîne un bannissement définitif du compte."
 }

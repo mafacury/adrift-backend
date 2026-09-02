@@ -443,5 +443,9 @@
   "Não foi possível excluir agora. Tente de novo.": "現在、削除できませんでした。もう一度お試しください。",
   "Senha incorreta.": "パスワードが間違っています。",
   "Esta conta foi excluída a seu pedido.": "このアカウントはご要望により削除されました。",
-  "Esta conta entra pelo Google. Para excluí-la, escreva para contact@adriftapp.fun a partir do e-mail da conta.": "このアカウントはGoogleでログインしています。削除するには、アカウントのメールアドレスから contact@adriftapp.fun 宛てにご連絡ください。"
+  "Esta conta entra pelo Google. Para excluí-la, escreva para contact@adriftapp.fun a partir do e-mail da conta.": "このアカウントはGoogleでログインしています。削除するには、アカウントのメールアドレスから contact@adriftapp.fun 宛てにご連絡ください。",
+  "Senha": "パスワード",
+  "Email": "メールアドレス",
+  "toque na tesoura": "はさみをタップ",
+  "Li e aceito os Termos de Uso. Sei que conteúdo ofensivo, xenófobo ou inadequado de qualquer natureza causa banimento permanente da conta.": "利用規約を読み、同意します。攻撃的、排外的、その他不適切な内容は、アカウントの永久停止につながることを理解しています。"
 }
