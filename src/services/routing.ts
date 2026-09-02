@@ -1,4 +1,4 @@
-import { pool } from '../db/pool.js';
+import { pool, emTransacao } from '../db/pool.js';
 import { config } from '../config/index.js';
 import { STAGE_CASE_SQL } from './progress.js';
 import { ajustesDoFluxo } from './ajustes.js';
@@ -217,17 +217,22 @@ export async function recordHop(params: {
 }): Promise<void> {
   const { boatId, fromUserId, toUserId, countryCode, messageId } = params;
 
-  await pool.query('BEGIN');
-  try {
+  // Transação de verdade: uma conexão só, do BEGIN ao COMMIT. Ver `emTransacao`
+  // em db/pool.ts para o que `pool.query('BEGIN')` fazia de errado. Este é o
+  // bloco em que isso mais importa: o pulo, os países e o estágio do barco são
+  // a mesma informação contada de quatro formas. Meio pulo gravado é um barco
+  // que esteve num país que não conta, ou um estágio que não bate com a
+  // travessia — e nada disso reclama.
+  await emTransacao(async (c) => {
     // Record the hop
-    await pool.query(
+    await c.query(
       `INSERT INTO boat_hops (boat_id, from_user_id, to_user_id, country_code, message_id)
        VALUES ($1, $2, $3, $4, $5)`,
       [boatId, fromUserId, toUserId, countryCode, messageId],
     );
 
     // Deduplicated country tracking
-    await pool.query(
+    await c.query(
       `INSERT INTO boat_countries (boat_id, country_code)
        VALUES ($1, $2)
        ON CONFLICT DO NOTHING`,
@@ -236,7 +241,7 @@ export async function recordHop(params: {
 
     // Unique interaction per country
     if (messageId) {
-      await pool.query(
+      await c.query(
         `INSERT INTO boat_country_interactions (boat_id, country_code, user_id)
          VALUES ($1, $2, $3)
          ON CONFLICT DO NOTHING`,
@@ -245,7 +250,7 @@ export async function recordHop(params: {
     }
 
     // Update boat stage + last_hop_at + unique_countries
-    await pool.query(
+    await c.query(
       `UPDATE boats
        SET
          unique_countries = (
@@ -257,9 +262,5 @@ export async function recordHop(params: {
       [boatId],
     );
 
-    await pool.query('COMMIT');
-  } catch (err) {
-    await pool.query('ROLLBACK');
-    throw err;
-  }
+  });
 }

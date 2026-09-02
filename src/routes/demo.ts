@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { pool } from '../db/pool.js';
+import { pool, emTransacao } from '../db/pool.js';
 import { ensureBots } from '../services/bots.js';
 import { sendPushToUser, boatComingMessage } from '../services/push.js';
 
@@ -68,12 +68,15 @@ export async function demoRoutes(app: FastifyInstance) {
     const countries = [...new Set(messages.map(m => m.country))];
     const stage = countries.length >= 4 ? 2 : 1;
 
-    await pool.query('BEGIN');
-    try {
+    // Transação de verdade — ver `emTransacao` em db/pool.ts. O barco de
+    // demonstração é fabricado inteiro (barco, mensagens, pulos, países) ou não
+    // é fabricado: metade dele seria um barco falso com buraco no histórico,
+    // dentro do museu, indistinguível de um bug de verdade.
+    const boatId = await emTransacao(async (c) => {
       const creatorId = botIds[Math.floor(Math.random() * botIds.length)];
       const daysTotal = hopCount * 2;
 
-      const { rows: [{ id: boatId }] } = await pool.query(
+      const { rows: [{ id: novoBarco }] } = await c.query(
         `INSERT INTO boats (creator_user_id, status, stage, unique_countries, created_at, last_hop_at)
          VALUES ($1, 'active', $2, $3, NOW() - ($4 || ' days')::INTERVAL, NOW() - INTERVAL '1 day')
          RETURNING id`,
@@ -86,55 +89,52 @@ export async function demoRoutes(app: FastifyInstance) {
         const botId = botIds[(i + 1) % botIds.length];
         const daysAgo = daysTotal - i * 2;
 
-        const { rows: [{ id: msgId }] } = await pool.query(
+        const { rows: [{ id: msgId }] } = await c.query(
           `INSERT INTO boat_messages (boat_id, user_id, content, country_code, created_at)
            VALUES ($1, $2, $3, $4, NOW() - ($5 || ' days')::INTERVAL)
            RETURNING id`,
-          [boatId, botId, msg.content, msg.country, daysAgo],
+          [novoBarco, botId, msg.content, msg.country, daysAgo],
         );
 
         if (prevUserId !== null) {
-          await pool.query(
+          await c.query(
             `INSERT INTO boat_hops (boat_id, from_user_id, to_user_id, country_code, message_id, hopped_at)
              VALUES ($1, $2, $3, $4, $5, NOW() - ($6 || ' days')::INTERVAL)`,
-            [boatId, prevUserId, botId, msg.country, msgId, daysAgo],
+            [novoBarco, prevUserId, botId, msg.country, msgId, daysAgo],
           );
         }
-        await pool.query(
+        await c.query(
           `INSERT INTO boat_countries (boat_id, country_code) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-          [boatId, msg.country],
+          [novoBarco, msg.country],
         );
-        await pool.query(
+        await c.query(
           `INSERT INTO boat_country_interactions (boat_id, country_code, user_id)
            VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
-          [boatId, msg.country, botId],
+          [novoBarco, msg.country, botId],
         );
         prevUserId = botId;
       }
 
-      await pool.query('COMMIT');
+      return novoBarco as string;
+    });
 
-      // 3. Colocar na fila do usuário logado — viagem curta (~15s) para
-      //    testar a silhueta se aproximando antes de atracar.
-      await pool.query(
-        `INSERT INTO receiver_queue (boat_id, user_id, arrives_at, expires_at, status)
-         VALUES ($1, $2, NOW() + INTERVAL '15 seconds', NOW() + INTERVAL '7 days', 'pending')`,
-        [boatId, userId],
-      );
+    // 3. Colocar na fila do usuário logado — viagem curta (~15s) para
+    //    testar a silhueta se aproximando antes de atracar.
+    await pool.query(
+      `INSERT INTO receiver_queue (boat_id, user_id, arrives_at, expires_at, status)
+       VALUES ($1, $2, NOW() + INTERVAL '15 seconds', NOW() + INTERVAL '7 days', 'pending')`,
+      [boatId, userId],
+    );
 
-      // notificação: barco a caminho
-      const { title, body } = boatComingMessage();
-      void sendPushToUser(userId, title, body);
+    // notificação: barco a caminho
+    const { title, body } = boatComingMessage();
+    void sendPushToUser(userId, title, body);
 
-      return reply.send({
-        status: 'created',
-        boatId,
-        countries,
-        messages: messages.length,
-      });
-    } catch (err) {
-      await pool.query('ROLLBACK');
-      throw err;
-    }
+    return reply.send({
+      status: 'created',
+      boatId,
+      countries,
+      messages: messages.length,
+    });
   });
 }

@@ -1,4 +1,4 @@
-import { pool } from '../db/pool.js';
+import { pool, emTransacao } from '../db/pool.js';
 import { processRouting } from './process.js';
 import { COUNTRY_LANG } from './country-data.js';
 import { STAGE_CASE_SQL } from './progress.js';
@@ -280,70 +280,81 @@ export async function botRespondSweep(): Promise<void> {
             .replaceAll('{PAIS}', c.name_pt)
         : null;
 
-      await pool.query('BEGIN');
+      // Transação de verdade — ver `emTransacao` em db/pool.ts. Este é o
+      // laço que mais rodava com o defeito antigo: um bot responde a cada
+      // minuto, e o `continue` do caminho de saída devolvia a conexão ao pool
+      // depois de um ROLLBACK feito por outra conexão qualquer.
+      //
+      // A saída antecipada virou valor de retorno: de dentro do callback não dá
+      // para `continue` no laço de fora. `false` quer dizer "a linha da fila já
+      // não estava pendente" — outro processo chegou primeiro, e aí não há o
+      // que desfazer porque nada foi escrito.
+      let respondeu = false;
       try {
-        const { rowCount } = await pool.query(
-          `UPDATE receiver_queue SET status = 'delivered'
-           WHERE id = $1 AND status = 'pending'`,
-          [entry.queue_id],
-        );
-        if (!rowCount) { await pool.query('ROLLBACK'); continue; }
-
-        let messageId: string | null = null;
-        if (content) {
-          // e, de vez em quando, algo a bordo junto da mensagem
-          const gift = presenteDeBot();
-          const { rows } = await pool.query(
-            // O idioma vai gravado: é ele que faz a tradução pular a chamada
-            // quando quem lê já fala a língua da mensagem (migração 029).
-            `INSERT INTO boat_messages (boat_id, user_id, content, country_code, gift_id, lang)
-             VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-            [entry.boat_id, entry.user_id, content, country, gift,
-             COUNTRY_LANG[country] ?? null],
+        respondeu = await emTransacao(async (c) => {
+          const { rowCount } = await c.query(
+            `UPDATE receiver_queue SET status = 'delivered'
+             WHERE id = $1 AND status = 'pending'`,
+            [entry.queue_id],
           );
-          messageId = rows[0].id;
-        }
+          if (!rowCount) return false;
 
-        const { rows: prevHop } = await pool.query(
-          `SELECT to_user_id FROM boat_hops WHERE boat_id = $1 ORDER BY hopped_at DESC LIMIT 1`,
-          [entry.boat_id],
-        );
-        const fromUserId = prevHop[0]?.to_user_id ?? null;
+          let messageId: string | null = null;
+          if (content) {
+            // e, de vez em quando, algo a bordo junto da mensagem
+            const gift = presenteDeBot();
+            const { rows } = await c.query(
+              // O idioma vai gravado: é ele que faz a tradução pular a chamada
+              // quando quem lê já fala a língua da mensagem (migração 029).
+              `INSERT INTO boat_messages (boat_id, user_id, content, country_code, gift_id, lang)
+               VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+              [entry.boat_id, entry.user_id, content, country, gift,
+               COUNTRY_LANG[country] ?? null],
+            );
+            messageId = rows[0].id;
+          }
 
-        await pool.query(
-          `INSERT INTO boat_hops (boat_id, from_user_id, to_user_id, country_code, message_id)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [entry.boat_id, fromUserId, entry.user_id, country, messageId],
-        );
-        await pool.query(
-          `INSERT INTO boat_countries (boat_id, country_code) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-          [entry.boat_id, country],
-        );
-        if (messageId) {
-          await pool.query(
-            `INSERT INTO boat_country_interactions (boat_id, country_code, user_id)
-             VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
-            [entry.boat_id, country, entry.user_id],
+          const { rows: prevHop } = await c.query(
+            `SELECT to_user_id FROM boat_hops WHERE boat_id = $1 ORDER BY hopped_at DESC LIMIT 1`,
+            [entry.boat_id],
           );
-        }
-        await pool.query(
-          `UPDATE boats
-           SET
-             unique_countries = (SELECT COUNT(*) FROM boat_countries WHERE boat_id = $1),
-             stage = ${STAGE_CASE_SQL},
-             last_hop_at = NOW()
-           WHERE id = $1`,
-          [entry.boat_id],
-        );
-        // bot continua ativo como receptor
-        await pool.query(`UPDATE users SET last_active_at = NOW() WHERE id = $1`, [entry.user_id]);
+          const fromUserId = prevHop[0]?.to_user_id ?? null;
 
-        await pool.query('COMMIT');
+          await c.query(
+            `INSERT INTO boat_hops (boat_id, from_user_id, to_user_id, country_code, message_id)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [entry.boat_id, fromUserId, entry.user_id, country, messageId],
+          );
+          await c.query(
+            `INSERT INTO boat_countries (boat_id, country_code) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+            [entry.boat_id, country],
+          );
+          if (messageId) {
+            await c.query(
+              `INSERT INTO boat_country_interactions (boat_id, country_code, user_id)
+               VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+              [entry.boat_id, country, entry.user_id],
+            );
+          }
+          await c.query(
+            `UPDATE boats
+             SET
+               unique_countries = (SELECT COUNT(*) FROM boat_countries WHERE boat_id = $1),
+               stage = ${STAGE_CASE_SQL},
+               last_hop_at = NOW()
+             WHERE id = $1`,
+            [entry.boat_id],
+          );
+          // bot continua ativo como receptor
+          await c.query(`UPDATE users SET last_active_at = NOW() WHERE id = $1`, [entry.user_id]);
+
+          return true;
+        });
       } catch (err) {
-        await pool.query('ROLLBACK');
         console.error(`[bots] falha ao responder barco ${entry.boat_id}:`, err);
         continue;
       }
+      if (!respondeu) continue;
 
       console.log(`[bots] ${entry.email} (${country}) → barco ${entry.boat_id} segue viagem`);
       await processRouting({ boatId: entry.boat_id, fromUserId: entry.user_id });

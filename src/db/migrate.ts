@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { pool } from './pool.js';
+import { pool, emTransacao } from './pool.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Funciona tanto com "tsx src/db/migrate.ts" quanto com "node dist/db/migrate.js"
@@ -31,16 +31,15 @@ async function migrate() {
     }
 
     const sql = fs.readFileSync(path.join(dir, file), 'utf8');
-    await pool.query('BEGIN');
-    try {
-      await pool.query(sql);
-      await pool.query('INSERT INTO schema_migrations (filename) VALUES ($1)', [file]);
-      await pool.query('COMMIT');
-      console.log(`[migrate] applied ${file}`);
-    } catch (err) {
-      await pool.query('ROLLBACK');
-      throw err;
-    }
+    // A migração e o registro dela são o mesmo ato. Separados, o pior caso é
+    // silencioso: o SQL aplica e o registro falha, então o próximo arranque
+    // roda tudo de novo sobre um banco que já mudou. `pool.query('BEGIN')` não
+    // agrupava de verdade — ver `emTransacao` em pool.ts.
+    await emTransacao(async (c) => {
+      await c.query(sql);
+      await c.query('INSERT INTO schema_migrations (filename) VALUES ($1)', [file]);
+    });
+    console.log(`[migrate] applied ${file}`);
   }
 
   await pool.end();

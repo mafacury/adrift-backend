@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import bcrypt from 'bcryptjs';
 import { randomBytes, createHash } from 'node:crypto';
-import { pool } from '../db/pool.js';
+import { pool, emTransacao } from '../db/pool.js';
 import { countryFromIp } from '../services/geo.js';
 import { enviarEmail, emailDeRecuperacao, emailDeVerificacao, emailSenhaAlterada, emailDeBoasVindas } from '../services/mail.js';
 import { verificarCaptcha } from '../services/captcha.js';
@@ -483,23 +483,21 @@ export async function authRoutes(app: FastifyInstance) {
       const { id, user_id } = rows[0];
       const senhaHash = await bcrypt.hash(password, 12);
 
-      await pool.query('BEGIN');
-      try {
-        await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [senhaHash, user_id]);
-        await pool.query('UPDATE password_resets SET used_at = NOW() WHERE id = $1', [id]);
+      // Transação de verdade — ver `emTransacao` em db/pool.ts. A senha nova e
+      // a morte dos links são o mesmo ato: senha trocada com os links ainda
+      // vivos deixa aberta exatamente a porta que a troca fechou.
+      await emTransacao(async (c) => {
+        await c.query('UPDATE users SET password_hash = $1 WHERE id = $2', [senhaHash, user_id]);
+        await c.query('UPDATE password_resets SET used_at = NOW() WHERE id = $1', [id]);
         // Os outros links pendentes desta conta morrem junto. Trocar a senha é
         // dizer "perdi o controle disto"; deixar um segundo link vivo na caixa
         // de e-mail seria manter a porta que se acabou de fechar.
-        await pool.query(
+        await c.query(
           `UPDATE password_resets SET used_at = NOW()
             WHERE user_id = $1 AND used_at IS NULL`,
           [user_id],
         );
-        await pool.query('COMMIT');
-      } catch (e) {
-        await pool.query('ROLLBACK');
-        throw e;
-      }
+      });
 
       // Confirma a troca por e-mail. Quem trocou já sabe e ignora; quem NÃO
       // trocou descobre agora que perdeu a conta, enquanto ainda dá tempo de

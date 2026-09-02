@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { pool } from '../db/pool.js';
+import { pool, emTransacao } from '../db/pool.js';
 import { processModeration, processRouting } from '../services/process.js';
 import { countryFromIp } from '../services/geo.js';
 import { userOwnsGift, giftInfo, consumeGift } from '../services/gifts.js';
@@ -86,42 +86,46 @@ export async function boatRoutes(app: FastifyInstance) {
       // sai do bau agora: presente que nao gasta nada nao vale nada
       if (gift) await consumeGift(userId, gift);
 
-      // Create boat + first message in one transaction
-      const { rows } = await pool.query('BEGIN; SELECT 1');
-      try {
-        const boatResult = await pool.query(
+      // Leitura antes da transação: feita lá dentro pelo `pool`, iria por outra
+      // conexão — não enxergaria o que a transação ainda não confirmou e
+      // poderia ficar esperando uma trava que a própria transação segura.
+      const idiomaDeQuemEscreve = await idiomaDoUsuario(userId);
+
+      // O barco e a primeira mensagem nascem juntos ou não nascem: um barco
+      // sem a mensagem que o motivou é um barco vazio navegando o mundo, e não
+      // há como descobrir depois o que ele deveria estar carregando.
+      //
+      // Era `pool.query('BEGIN; SELECT 1')`, que abria a transação numa conexão
+      // e a devolvia ao pool ainda aberta — ver `emTransacao` em db/pool.ts.
+      const { boatId, messageId } = await emTransacao(async (c) => {
+        const boatResult = await c.query(
           `INSERT INTO boats (creator_user_id) VALUES ($1) RETURNING id`,
           [userId],
         );
-        const boatId: string = boatResult.rows[0].id;
+        const novoBarco: string = boatResult.rows[0].id;
 
-        const msgResult = await pool.query(
+        const msgResult = await c.query(
           `INSERT INTO boat_messages (boat_id, user_id, content, country_code, gift_id, lang)
            VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-          [boatId, userId, content, countryCode, gift, await idiomaDoUsuario(userId)],
+          [novoBarco, userId, content, countryCode, gift, idiomaDeQuemEscreve],
         );
-        const messageId: string = msgResult.rows[0].id;
+        return { boatId: novoBarco, messageId: msgResult.rows[0].id as string };
+      });
 
-        await pool.query('COMMIT');
+      // Moderação roda em background — resposta não espera
+      void processModeration({ boatId, messageId, content, userId, countryCode });
 
-        // Moderação roda em background — resposta não espera
-        void processModeration({ boatId, messageId, content, userId, countryCode });
+      // Se esta pessoa veio pelo convite de alguém, é AQUI que quem a trouxe
+      // recebe o prêmio — no primeiro barco, não no cadastro. Cadastro é
+      // barato de fabricar; lançar um barco exige e-mail confirmado, captcha,
+      // país e algo escrito. Sem await: prêmio não pode atrasar o lançamento.
+      void premiarIndicacao(userId);
 
-        // Se esta pessoa veio pelo convite de alguém, é AQUI que quem a trouxe
-        // recebe o prêmio — no primeiro barco, não no cadastro. Cadastro é
-        // barato de fabricar; lançar um barco exige e-mail confirmado, captcha,
-        // país e algo escrito. Sem await: prêmio não pode atrasar o lançamento.
-        void premiarIndicacao(userId);
-
-        return reply.code(202).send({
-          boatId,
-          status: 'pending_moderation',
-          message: 'Barcos viajam pelo oceano. Chegam quando chegam.',
-        });
-      } catch (err) {
-        await pool.query('ROLLBACK');
-        throw err;
-      }
+      return reply.code(202).send({
+        boatId,
+        status: 'pending_moderation',
+        message: 'Barcos viajam pelo oceano. Chegam quando chegam.',
+      });
     },
   );
 
@@ -157,55 +161,63 @@ export async function boatRoutes(app: FastifyInstance) {
         return reply.code(404).send({ error: 'boat not in your queue' });
       }
 
-      await pool.query('BEGIN');
-      try {
+      // O idioma sai de dentro da transação de propósito: é leitura, e leitura
+      // feita por `pool` lá dentro iria por OUTRA conexão — não enxergaria o
+      // que a transação ainda não confirmou, e no pior caso ficaria esperando
+      // uma trava que a própria transação segura. Ler antes resolve os dois.
+      const idiomaDeQuemEscreve = content ? await idiomaDoUsuario(userId) : null;
+
+      // Transação de verdade — ver `emTransacao` em db/pool.ts. Aqui é a
+      // resposta de alguém a um barco: a fila muda de estado, a mensagem
+      // nasce, o pulo é gravado e o estágio recalculado. Metade disso é um
+      // barco que a pessoa respondeu sem a resposta existir.
+      let messageId: string | null = null;
+      await emTransacao(async (c) => {
         // Mark queue entry delivered
-        await pool.query(
+        await c.query(
           `UPDATE receiver_queue SET status = 'delivered'
            WHERE boat_id = $1 AND user_id = $2 AND status = 'pending'`,
           [boatId, userId],
         );
 
-        let messageId: string | null = null;
-
         if (content) {
-          const msgResult = await pool.query(
+          const msgResult = await c.query(
             `INSERT INTO boat_messages (boat_id, user_id, content, country_code, gift_id, lang)
              VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-            [boatId, userId, content, countryCode, gift, await idiomaDoUsuario(userId)],
+            [boatId, userId, content, countryCode, gift, idiomaDeQuemEscreve],
           );
           messageId = msgResult.rows[0].id;
           // conteúdo novo = assunto vivo: zera o contador de "deixaram passar"
-          await pool.query(`UPDATE boats SET idle_ignores = 0 WHERE id = $1`, [boatId]);
+          await c.query(`UPDATE boats SET idle_ignores = 0 WHERE id = $1`, [boatId]);
         }
 
         // Record hop immediately (receptor interacted — boat is "here" now)
-        const { rows: prevHop } = await pool.query(
+        const { rows: prevHop } = await c.query(
           `SELECT to_user_id FROM boat_hops WHERE boat_id = $1 ORDER BY hopped_at DESC LIMIT 1`,
           [boatId],
         );
         const fromUserId = prevHop[0]?.to_user_id ?? null;
 
         // Insert hop
-        await pool.query(
+        await c.query(
           `INSERT INTO boat_hops (boat_id, from_user_id, to_user_id, country_code, message_id)
            VALUES ($1, $2, $3, $4, $5)`,
           [boatId, fromUserId, userId, countryCode, messageId],
         );
 
         // Update boat_countries + stage
-        await pool.query(
+        await c.query(
           `INSERT INTO boat_countries (boat_id, country_code) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
           [boatId, countryCode],
         );
         if (messageId) {
-          await pool.query(
+          await c.query(
             `INSERT INTO boat_country_interactions (boat_id, country_code, user_id)
              VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
             [boatId, countryCode, userId],
           );
         }
-        await pool.query(
+        await c.query(
           `UPDATE boats
            SET
              unique_countries = (SELECT COUNT(*) FROM boat_countries WHERE boat_id = $1),
@@ -215,33 +227,31 @@ export async function boatRoutes(app: FastifyInstance) {
           [boatId],
         );
 
-        await pool.query('COMMIT');
+      });
 
-        // Deixou um presente? Avisa o criador do barco (se não for ele mesmo).
-        if (gift) {
-          const { rows: cr } = await pool.query(
-            `SELECT creator_user_id FROM boats WHERE id = $1`, [boatId],
-          );
-          const creatorId = cr[0]?.creator_user_id;
-          if (creatorId && creatorId !== userId) {
-            const msg = boatGiftMessage();
-            void avisar(creatorId, { titulo: msg.title, corpo: msg.body, url: '/map', tag: 'presente' });
-          }
+      // Daqui para baixo a transação já foi confirmada. Nada abaixo desta
+      // linha pode ser desfeito, e é por isso que só há avisos e trabalho de
+      // fundo: o que precisava ser atômico ficou lá dentro.
+      if (gift) {
+        const { rows: cr } = await pool.query(
+          `SELECT creator_user_id FROM boats WHERE id = $1`, [boatId],
+        );
+        const creatorId = cr[0]?.creator_user_id;
+        if (creatorId && creatorId !== userId) {
+          const msg = boatGiftMessage();
+          void avisar(creatorId, { titulo: msg.title, corpo: msg.body, url: '/map', tag: 'presente' });
         }
-
-        if (content && messageId) {
-          // Nova mensagem — modera antes de rotear (em background)
-          void processModeration({ boatId, messageId, content, userId, countryCode });
-        } else {
-          // Sem mensagem nova — rotear direto (em background)
-          void processRouting({ boatId, fromUserId: userId });
-        }
-
-        return reply.send({ status: 'sailing' });
-      } catch (err) {
-        await pool.query('ROLLBACK');
-        throw err;
       }
+
+      if (content && messageId) {
+        // Nova mensagem — modera antes de rotear (em background)
+        void processModeration({ boatId, messageId, content, userId, countryCode });
+      } else {
+        // Sem mensagem nova — rotear direto (em background)
+        void processRouting({ boatId, fromUserId: userId });
+      }
+
+      return reply.send({ status: 'sailing' });
     },
   );
 
@@ -303,17 +313,19 @@ export async function boatRoutes(app: FastifyInstance) {
 
       const boatId = req.params.id;
 
-      await pool.query('BEGIN');
-      try {
+      // Transação de verdade — ver `emTransacao` em db/pool.ts. Os três
+      // passos são a mesma decisão: a pessoa deixou passar. Gravar o "passou"
+      // sem somar o contador faria o barco nunca voltar para casa.
+      await emTransacao(async (c) => {
         // Mark queue entry skipped
-        await pool.query(
+        await c.query(
           `UPDATE receiver_queue SET status = 'skipped'
            WHERE boat_id = $1 AND user_id = $2 AND status = 'pending'`,
           [boatId, userId],
         );
 
         // Upsert ignore count
-        await pool.query(
+        await c.query(
           `INSERT INTO boat_ignore_counts (boat_id, user_id, count)
            VALUES ($1, $2, 1)
            ON CONFLICT (boat_id, user_id) DO UPDATE SET count = boat_ignore_counts.count + 1`,
@@ -323,21 +335,16 @@ export async function boatRoutes(app: FastifyInstance) {
         // "Deixaram passar" SEGUIDOS — o sinal de que o assunto se esgotou.
         // Qualquer mensagem nova zera; chegando a MAX_IDLE_IGNORES o barco
         // volta para casa (services/journey.ts).
-        await pool.query(
+        await c.query(
           `UPDATE boats SET idle_ignores = idle_ignores + 1 WHERE id = $1`,
           [boatId],
         );
+      });
 
-        await pool.query('COMMIT');
+      // Re-route to someone else (em background)
+      void processRouting({ boatId, fromUserId: null });
 
-        // Re-route to someone else (em background)
-        void processRouting({ boatId, fromUserId: null });
-
-        return reply.send({ status: 'ignored' });
-      } catch (err) {
-        await pool.query('ROLLBACK');
-        throw err;
-      }
+      return reply.send({ status: 'ignored' });
     },
   );
 
