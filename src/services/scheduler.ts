@@ -6,6 +6,7 @@ import { journeySweep } from './journey.js';
 import { reengageSweep } from './reengage.js';
 import { avisarChegadas, avisarPrazo, avisarPerdas } from './alerts.js';
 import { podarRastro } from './rastro.js';
+import { manterVitrine } from './vitrine.js';
 
 export function startScheduler() {
   // Every minute: expire timed-out queue entries and reroute those boats
@@ -60,6 +61,12 @@ export function startScheduler() {
   // Uma vez por dia, às 15h UTC (fim de manhã no Brasil, tarde na Europa):
   // chama de volta quem sumiu. Não reserva barco — ver services/reengage.ts.
   cron.schedule('0 15 * * *', reengageSweep);
+
+  // A cada 30 min: empurra a chegada dos barcos da vitrine para a frente.
+  // Sem isto a hora de chegada passa, o selo "segue viagem em ~4h17" some, e
+  // quem entrou para dar uma olhada vê três barcos parados — que é o sintoma
+  // de app quebrado, não de app bonito. Ver services/vitrine.ts.
+  cron.schedule('*/30 * * * *', manterVitrine);
 
   // Uma vez por dia, às 04h UTC: poda o rastro de requisições.
   //

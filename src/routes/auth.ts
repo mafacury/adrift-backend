@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import bcrypt from 'bcryptjs';
 import { randomBytes, createHash } from 'node:crypto';
 import { pool, emTransacao } from '../db/pool.js';
+import { EMAIL_VITRINE } from '../services/vitrine.js';
 import { countryFromIp } from '../services/geo.js';
 import { enviarEmail, emailDeRecuperacao, emailDeVerificacao, emailSenhaAlterada, emailDeBoasVindas } from '../services/mail.js';
 import { verificarCaptcha } from '../services/captcha.js';
@@ -543,6 +544,57 @@ export async function authRoutes(app: FastifyInstance) {
       );
 
       return reply.send({ status: 'ok' });
+    },
+  );
+
+  // ── POST /auth/visitante ───────────────────────────────────────────────────
+  /**
+   * "Look around first" — entrar sem conta, só para olhar.
+   *
+   * Veio de um comentário no Reddit: a pessoa tentou o app, bateu no cadastro e
+   * desistiu. "Account-required is a barrier to play with an app for 5 minutes."
+   *
+   * Por que NÃO é um usuário `demo` com senha `demo`:
+   *
+   *   1. quem desiste de um formulário de login não é salvo por outro
+   *      formulário de login. Isto é um toque, sem digitar nada.
+   *   2. credencial pública é vetor de ataque. Cada tentativa de login roda um
+   *      bcrypt de custo 12 — centenas de milissegundos. Publicar a senha num
+   *      fórum seria convidar alguém a fazer um laço e segurar o núcleo.
+   *
+   * O token carrega `espiando: true`, a mesma marca da espiada administrativa:
+   * o gancho global em index.ts recusa qualquer método que não seja GET, em
+   * qualquer rota, inclusive nas que forem criadas amanhã. Só leitura de
+   * verdade é o servidor recusar a escrita — esconder botão na tela não é.
+   *
+   * Expira em 2 horas. É passeio, não conta.
+   */
+  app.post(
+    '/auth/visitante',
+    { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    async (_req, reply) => {
+      const { rows } = await pool.query(
+        `SELECT id, email, country_code FROM users WHERE email = $1`,
+        [EMAIL_VITRINE],
+      );
+      if (!rows.length) {
+        // A vitrine é montada no arranque. Se não existe, algo falhou lá — e
+        // mandar a pessoa para uma conta vazia é pior do que dizer não.
+        return reply.code(503).send({
+          error: 'vitrine_indisponivel',
+          message: 'A visita guiada está fora do ar agora. Crie uma conta para entrar.',
+        });
+      }
+      const v = rows[0];
+      const token = app.jwt.sign(
+        { id: v.id, email: v.email, country: v.country_code, espiando: true, visitante: true },
+        { expiresIn: '2h' },
+      );
+      return reply.send({
+        token,
+        user: { id: v.id, email: v.email, country: v.country_code },
+        visitante: true,
+      });
     },
   );
 

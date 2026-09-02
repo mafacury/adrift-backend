@@ -18,6 +18,7 @@ import { conferirIA, estadoDaIA } from './services/moderation.js';
 import { webPushLigado } from './services/notify.js';
 import { envioRealLigado, smtpLigado, conferirSmtp, estadoDoSmtp, sondaDePortas, conferirResend, estadoDoResend } from './services/mail.js';
 import { registrar, codigoDoErro, vaiRegistrar } from './services/rastro.js';
+import { garantirVitrine } from './services/vitrine.js';
 
 const app = Fastify({ logger: true, trustProxy: true });
 
@@ -292,8 +293,13 @@ if (!config.antispam.requireEmailVerification) {
 // Start scheduler (moderação e roteamento rodam inline — sem Redis)
 startScheduler();
 
-// Garante os usuários virtuais espalhados pelo mundo (receptores automáticos)
-void ensureBots().catch(console.error);
+// Os usuários virtuais espalhados pelo mundo (receptores automáticos) e, em
+// seguida, a vitrine de quem entra sem conta — que depende deles, porque os
+// bots são os "portos" por onde os barcos de demonstração passaram.
+//
+// Encadeados de propósito: duas chamadas paralelas a `ensureBots` disputariam
+// os mesmos inserts.
+void ensureBots().then(garantirVitrine).catch(console.error);
 
 // Start server
 const host = '0.0.0.0';

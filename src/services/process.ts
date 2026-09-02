@@ -88,9 +88,16 @@ export async function processRouting(data: RoutingData): Promise<void> {
     // Barco voltando para casa (ou arquivado/pausado) não segue adiante —
     // a fila dele pode expirar durante a volta e cairia aqui.
     const { rows: st } = await pool.query(
-      `SELECT status FROM boats WHERE id = $1`, [boatId],
+      `SELECT status, vitrine FROM boats WHERE id = $1`, [boatId],
     );
     if (st[0]?.status !== 'active') return;
+
+    // Barco de vitrine nunca entra na fila de uma pessoa de verdade. A trava
+    // mora AQUI e não em cada varredura porque esta função é o funil único:
+    // nenhum barco chega a um porto sem passar por ela. Assim a proteção vale
+    // também para o caminho que alguém escrever amanhã sem saber que a coluna
+    // `vitrine` existe. Ver services/vitrine.ts.
+    if (st[0].vitrine) return;
 
     const lastCountry = await getLastHopCountry(boatId);
     const receiver = await pickNextReceiver(boatId);

@@ -237,8 +237,12 @@ export async function botRespondSweep(): Promise<void> {
       `SELECT rq.id AS queue_id, rq.boat_id, rq.user_id, rq.dest_country, u.email
        FROM receiver_queue rq
        JOIN users u ON u.id = rq.user_id
+       JOIN boats b ON b.id = rq.boat_id
        WHERE rq.status = 'pending'
          AND u.oauth_provider = 'bot'
+         -- barco de vitrine fica sempre a caminho: se o bot respondesse, a
+         -- linha viraria 'delivered' e o mapa perderia o selo de viagem
+         AND NOT b.vitrine
          AND (
            -- o barco CHEGOU (viagem por distância real) e o "porto" levou
            -- 5..45 min lendo e escrevendo (estável por entrada)...
