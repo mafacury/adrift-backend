@@ -404,6 +404,10 @@ export async function userRoutes(app: FastifyInstance) {
            COALESCE(
              json_agg(
                json_build_object(
+                 -- o id vai junto porque denunciar precisa dele. Sem ele a
+                 -- rota POST /boats/:id/report existia e nenhuma tela podia
+                 -- chamá-la: o app não tinha como dizer QUAL mensagem.
+                 'id', bm.id,
                  'country_code', bm.country_code,
                  'content', bm.content,
                  'created_at', bm.created_at,
