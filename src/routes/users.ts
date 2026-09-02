@@ -750,19 +750,45 @@ export async function userRoutes(app: FastifyInstance) {
   //
   // Uma comemoração por vez, conforme a pessoa fecha. Acusar em bloco seria
   // mais simples e apagaria o que chegou entre a consulta e o fechamento.
-  app.post<{ Body: { giftUntil?: string; boatId?: string; stage?: number } }>(
+  app.post<{ Body: { giftUntil?: string; giftMessageId?: string; boatId?: string; stage?: number } }>(
     '/users/me/celebrations/ack',
     {},
     async (req, reply) => {
       const userId = (req as any).user?.id;
       if (!userId) return reply.code(401).send({ error: 'unauthorized' });
-      const { giftUntil, boatId, stage } = req.body ?? {};
+      const { giftUntil, giftMessageId, boatId, stage } = req.body ?? {};
 
-      if (giftUntil) {
-        // GREATEST para o relógio nunca andar para trás quando duas abas
-        // fecham comemorações fora de ordem
+      // ── O corte dos presentes ────────────────────────────────────────────
+      //
+      // Era o app que mandava o relógio de volta (`giftUntil`), e isso não
+      // funciona: JavaScript tem MILISSEGUNDO, Postgres tem MICROSSEGUNDO. Um
+      // presente gravado às 06:22:01.087456 volta em JSON como 06:22:01.087,
+      // o servidor guardava esse valor, e `created_at > gifts_seen_at`
+      // continuava verdadeiro por 456 microssegundos — para sempre. A mesma
+      // comemoração reaparecia a cada abertura do app, inclusive já marcada
+      // como agradecida, porque agradecer e "ter visto" são coisas diferentes.
+      //
+      // Agora o app manda o ID da mensagem e o corte sai do banco, com a
+      // precisão que o banco tem. De quebra, some a confiança no relógio de
+      // quem chama: antes dava para mandar qualquer data.
+      if (giftMessageId) {
         await pool.query(
-          `UPDATE users SET gifts_seen_at = GREATEST(gifts_seen_at, $2::timestamptz)
+          // O JOIN prende a mensagem a um barco DESTA pessoa: sem ele,
+          // mandar o id de um presente alheio moveria o relógio dela.
+          `UPDATE users u
+              SET gifts_seen_at = GREATEST(u.gifts_seen_at, bm.created_at)
+             FROM boat_messages bm
+             JOIN boats b ON b.id = bm.boat_id
+            WHERE u.id = $1 AND bm.id = $2 AND b.creator_user_id = $1`,
+          [userId, giftMessageId],
+        );
+      } else if (giftUntil) {
+        // Caminho antigo, para o site que ainda estiver com a versão anterior
+        // no ar. O milissegundo a mais cobre exatamente o que a conversão para
+        // JSON trunca — no máximo 999 microssegundos.
+        await pool.query(
+          `UPDATE users
+              SET gifts_seen_at = GREATEST(gifts_seen_at, $2::timestamptz + INTERVAL '1 millisecond')
             WHERE id = $1`,
           [userId, giftUntil],
         );
