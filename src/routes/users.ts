@@ -689,14 +689,23 @@ export async function userRoutes(app: FastifyInstance) {
       }
 
       // ── barcos que subiram de nível e ninguém comemorou
+      // `initial_message` NÃO é coluna de `boats` — em todo o resto do código
+      // ela é apelido de uma subconsulta na primeira mensagem do barco. Aqui
+      // estava escrita como se fosse coluna, e o Postgres recusa a consulta
+      // inteira antes de olhar uma linha sequer: a rota devolvia 500 para
+      // todo mundo, sempre, desde que foi escrita. Nenhuma comemoração de
+      // evolução jamais chegou a uma tela. Achado pelo rastro (033) no
+      // primeiro dia em que ele existiu.
       const { rows: evolucoes } = await pool.query(
-        `SELECT id AS boat_id, LEFT(id::text, 5) AS boat_code,
-                stage, COALESCE(stage_seen, 1) AS stage_seen, initial_message, last_hop_at
-           FROM boats
-          WHERE creator_user_id = $1
-            AND status <> 'archived'
-            AND stage > COALESCE(stage_seen, 1)
-          ORDER BY last_hop_at ASC`,
+        `SELECT b.id AS boat_id, LEFT(b.id::text, 5) AS boat_code,
+                b.stage, COALESCE(b.stage_seen, 1) AS stage_seen, b.last_hop_at,
+                (SELECT LEFT(content, 80) FROM boat_messages
+                  WHERE boat_id = b.id ORDER BY created_at ASC LIMIT 1) AS initial_message
+           FROM boats b
+          WHERE b.creator_user_id = $1
+            AND b.status <> 'archived'
+            AND b.stage > COALESCE(b.stage_seen, 1)
+          ORDER BY b.last_hop_at ASC`,
         [userId],
       );
 

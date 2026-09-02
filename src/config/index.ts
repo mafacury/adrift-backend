@@ -75,7 +75,15 @@ export const config = {
    * barcos em dois minutos por acaso.
    */
   antispam: {
-    maxActiveBoatsPerUser: int('MAX_ACTIVE_BOATS_PER_USER', 3),
+    // 3 → 10 em 02/09/2026, a pedido. Três apertava demais na fase de testes:
+    // barco leva dias para voltar, então quem lançava três ficava sem poder
+    // lançar até um deles fechar a volta — e o app dizia "espere um voltar"
+    // para quem tinha acabado de chegar. O teto continua existindo porque é
+    // ele que impede fabricar barco em massa, mas 10 é folga de sobra.
+    //
+    // Se este número não pegar em produção, é porque a variável
+    // MAX_ACTIVE_BOATS_PER_USER está definida no Railway e vence o padrão.
+    maxActiveBoatsPerUser: int('MAX_ACTIVE_BOATS_PER_USER', 10),
     launchCooldownSec: int('LAUNCH_COOLDOWN_SEC', 120),
 
     // rejeições da nossa moderação, em janela de 24h

@@ -47,6 +47,13 @@ const IGNORAR = new Set(['/health', '/favicon.ico']);
 
 export function vaiRegistrar(method: string, path: string, status: number): boolean {
   if (IGNORAR.has(path)) return false;
+  // OPTIONS é o preflight de CORS: o navegador pergunta se pode, antes de cada
+  // requisição de verdade. Não é ação de ninguém e não muda nada, mas por não
+  // ser GET entrava na regra abaixo — no primeiro dia foram 84% da tabela, e
+  // empurravam para fora do alcance justamente o que se quer ler. Preflight que
+  // FALHA é outra coisa: aí o navegador barrou a chamada real e a pessoa viu o
+  // app travar sem erro nenhum, que é dos sintomas mais difíceis de rastrear.
+  if (method === 'OPTIONS' && status < 400) return false;
   return method !== 'GET' || status >= 400;
 }
 
