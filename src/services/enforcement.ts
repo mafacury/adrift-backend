@@ -71,10 +71,16 @@ export async function avaliarConduta(userId: string | null): Promise<void> {
     if (quem[0].ban_status === 'banned') return;
 
     const { rows } = await pool.query(
+      // `contato:` fica de fora da escada. A mensagem foi recusada — o dado
+      // de contato não passa — mas alguém empolgado escrevendo "me acha no
+      // Instagram" está entusiasmado, não atacando ninguém. Contar isso três
+      // vezes e advertir, cinco e banir, seria apagar a conta de uma pessoa de
+      // bem por não ter lido a regra. Ver services/moderation.ts.
       `SELECT COUNT(*)::int AS n
          FROM moderation_log
         WHERE user_id = $1
           AND verdict = 'rejected'
+          AND COALESCE(detail, '') NOT LIKE 'contato:%'
           AND created_at > NOW() - INTERVAL '24 hours'`,
       [userId],
     );

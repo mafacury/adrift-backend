@@ -23,6 +23,56 @@ function blocklist(text: string): boolean {
   return BLOCKLIST_PATTERNS.some((re) => re.test(text));
 }
 
+// ── Camada 1b: dado de contato ───────────────────────────────────────────────
+//
+// Separada da lista acima de propósito, e a razão é dura: uma rejeição conta
+// para o banimento (3 em 24h vira advertência, 5 vira permanente — ver
+// services/enforcement.ts). Discurso de ódio merece essa escada. Alguém
+// empolgado escrevendo "me acha no Instagram" não merece — é entusiasmo, não
+// ataque, e um falso positivo aqui apagaria a conta de uma pessoa de bem.
+//
+// Então: a mensagem É recusada, que é a proteção pedida, mas o veredito sai
+// marcado com `contato:` e o contador de conduta ignora esses. Ver
+// `avaliarConduta`.
+//
+// O buraco que isto fecha: a lista acima só rejeita link com `http://`. Sem
+// protocolo — `instagram.com/fulano`, `t.me/grupo`, `wa.me/5521…` — passava
+// inteiro. E não havia padrão nenhum para e-mail.
+const CONTATO: { nome: string; re: RegExp }[] = [
+  { nome: 'email', re: /[\w.+-]+@[\w-]+\.[a-z]{2,}/i },
+  // as casas onde a conversa continuaria fora daqui, com ou sem protocolo
+  { nome: 'rede', re: /\b(?:wa\.me|t\.me|telegram\.me|discord\.gg|instagram\.com|facebook\.com|fb\.me|tiktok\.com|snapchat\.com|twitter\.com|x\.com|linkedin\.com|reddit\.com|youtu\.be|youtube\.com)\b/i },
+  // encurtadores, pelo nome: existem justamente para esconder o destino, e
+  // vários usam domínio de país exótico que não caberia numa lista de TLD
+  { nome: 'encurtador', re: /\b(?:bit\.ly|tinyurl\.com|goo\.gl|t\.co|ow\.ly|is\.gd|buff\.ly|rb\.gy|cutt\.ly|shorturl\.at|lnkd\.in)\b/i },
+  // qualquer domínio COM caminho: exigir a barra é o que separa um link de
+  // alguém escrevendo "sou do interior de S.Paulo"
+  { nome: 'link', re: /\b[a-z0-9-]{2,}\.(?:com|net|org|io|me|gg|ly|co|to|cc|sh|tv|link|xyz|site|app|br|pt|es|fr|de|jp|uk|us|in|ca|au|mx|ar|cl|ng|za|kr|se|it|nl)\/[^\s]/i },
+];
+
+/**
+ * Telefone, em qualquer formato do mundo.
+ *
+ * O padrão antigo era de número americano (3-3-4) e deixava passar quase todo
+ * telefone que não fosse dos Estados Unidos. Aqui a regra é outra: uma
+ * sequência com jeito de telefone E oito dígitos ou mais. Oito é o piso porque
+ * ano tem quatro, "42 países" tem dois, e nenhuma frase normal enfileira oito
+ * dígitos com espaços e traços no meio.
+ */
+function pareceTelefone(texto: string): boolean {
+  for (const trecho of texto.match(/\+?[\d][\d\s().\-]{6,}\d/g) ?? []) {
+    if ((trecho.match(/\d/g) ?? []).length >= 8) return true;
+  }
+  return false;
+}
+
+/** Devolve o tipo de contato encontrado, ou null. */
+function dadoDeContato(texto: string): string | null {
+  for (const c of CONTATO) if (c.re.test(texto)) return c.nome;
+  if (pareceTelefone(texto)) return 'telefone';
+  return null;
+}
+
 // ── Camada 2: IA (claude-haiku-4-5) ─────────────────────────────────────────
 
 const client = new Anthropic({ apiKey: config.anthropicApiKey });
@@ -35,6 +85,7 @@ Reply ONLY with a JSON object with this shape:
 { "verdict": "approved" | "rejected" | "uncertain", "reason": "<one short sentence>" }
 
 Reject if the new message contains: hate speech, slurs, graphic violence, sexual content, spam, or external links.
+Also reject any attempt to move the conversation off Adrift: email addresses, phone numbers, social media handles or usernames, invitations to add someone on WhatsApp/Telegram/Instagram/Discord, or any other contact detail. Adrift has no direct messaging by design, and a boat is not a channel for arranging one.
 Mark uncertain if it is ambiguous, potentially harmful, or you are not confident.
 Approve everything else — creative, emotional, philosophical, or neutral content is fine.
 `;
@@ -129,6 +180,12 @@ export async function moderate(
   // Layer 1
   if (blocklist(newContent)) {
     return { verdict: 'rejected', layer: 1, detail: 'blocklist match' };
+  }
+
+  // Dado de contato: recusa a mensagem, mas NÃO conta para o banimento.
+  const contato = dadoDeContato(newContent);
+  if (contato) {
+    return { verdict: 'rejected', layer: 1, detail: `contato: ${contato}` };
   }
 
   // Layer 2
