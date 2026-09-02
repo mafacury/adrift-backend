@@ -88,6 +88,21 @@ function inteiro(min: number, max: number) {
  */
 export async function garantirVitrine(): Promise<void> {
   try {
+    // Antes de qualquer coisa: acertar o que já está no ar. Os primeiros
+    // barcos da vitrine nasceram sem `stage_seen`, e por isso abriam a
+    // comemoração da fita na cara de quem entrava para dar uma olhada. Esta
+    // correção roda a cada arranque e é barata (índice parcial, três linhas).
+    const { rowCount: acertados } = await pool.query(
+      `UPDATE boats SET stage_seen = stage
+        WHERE vitrine AND COALESCE(stage_seen, 0) <> stage`,
+    );
+    if (acertados) console.log(`[vitrine] ${acertados} barco(s) sem comemoração pendente`);
+    await pool.query(
+      `UPDATE users SET gifts_seen_at = NOW()
+        WHERE email = $1 AND gifts_seen_at < NOW() - INTERVAL '1 minute'`,
+      [EMAIL_VITRINE],
+    );
+
     const { rows: jaTem } = await pool.query(
       `SELECT COUNT(*)::int AS n FROM boats WHERE vitrine`,
     );
@@ -187,6 +202,18 @@ async function criarBarco(
     await c.query(
       `UPDATE boats SET
          unique_countries = (SELECT COUNT(*) FROM boat_countries WHERE boat_id = $1),
+         -- stage_seen acompanha o estagio desde o nascimento. Sem isto o app
+         -- entende que o barco ACABOU de evoluir e abre a comemoracao da fita
+         -- em cima de quem clicou "de uma olhada antes" — a pior primeira tela
+         -- possivel: um ritual sem contexto, para um barco que nao e seu. E o
+         -- visitante nem conseguiria fecha-la: dispensar e um POST, e o
+         -- servidor recusa escrita dele. A tela voltaria para sempre.
+         stage_seen = (
+           SELECT MAX(faixa) FROM (VALUES
+             (1, 0), (2, 10), (3, 25), (4, 60), (5, 120), (6, 250), (7, 450), (8, 800)
+           ) AS s(faixa, minimo)
+           WHERE s.minimo <= (SELECT COUNT(*) FROM boat_messages WHERE boat_id = $1)
+         ),
          stage = (
            SELECT MAX(faixa) FROM (VALUES
              (1, 0), (2, 10), (3, 25), (4, 60), (5, 120), (6, 250), (7, 450), (8, 800)
