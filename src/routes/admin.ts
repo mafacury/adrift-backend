@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { pool } from '../db/pool.js';
+import { processRouting } from '../services/process.js';
 import { avisarBanimento } from '../services/enforcement.js';
 import { limparCacheDeAjustes } from '../services/ajustes.js';
 
@@ -178,6 +179,30 @@ export async function adminRoutes(app: FastifyInstance) {
       if (!['active','paused','archived'].includes(status))
         return reply.code(400).send({ error: 'status inválido' });
       await pool.query('UPDATE boats SET status = $1 WHERE id = $2', [status, req.params.id]);
+
+      // Liberar um barco aqui não era liberar de verdade, e o sintoma era mudo:
+      // o barco ficava 'active' e parado para sempre.
+      //
+      // Duas coisas faltavam. A varredura que resgata barco encalhado
+      // (sweepStrandedBoats) exige um veredito 'approved' no log — de propósito,
+      // para não soltar ao mar o que nunca foi julgado. Mudar o status não
+      // escrevia veredito nenhum, então o barco liberado por um humano nunca
+      // atendia à condição. E ninguém o roteava na hora.
+      //
+      // Agora a decisão do administrador vira veredito (camada 0 = pessoa, não
+      // máquina), e o barco parte imediatamente em vez de esperar a varredura.
+      if (status === 'active') {
+        await pool.query(
+          `INSERT INTO moderation_log (boat_id, message_id, verdict, layer, detail, user_id)
+           SELECT b.id,
+                  (SELECT id FROM boat_messages WHERE boat_id = b.id ORDER BY created_at LIMIT 1),
+                  'approved', 0, 'liberado pelo administrador', b.creator_user_id
+             FROM boats b WHERE b.id = $1`,
+          [req.params.id],
+        );
+        void processRouting({ boatId: req.params.id, fromUserId: null });
+      }
+
       return reply.send({ status: 'ok' });
     },
   );

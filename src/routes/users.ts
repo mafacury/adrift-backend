@@ -124,6 +124,35 @@ export async function userRoutes(app: FastifyInstance) {
     return reply.send(cacheTextos.mapa);
   });
 
+  // ── GET /users/me/pier ─────────────────────────────────────────────────────
+  /**
+   * O que o Píer precisa saber antes de deixar alguém escrever: quantos barcos
+   * esta pessoa tem no mar e qual é o teto.
+   *
+   * Existe porque o teto vive no servidor (MAX_ACTIVE_BOATS_PER_USER) e o app
+   * não tinha como saber dele. O resultado era o pior desenho possível: a
+   * pessoa escrevia a mensagem inteira, apertava "Lançar ao mar", e só então
+   * descobria que não podia — perdendo o texto e o ânimo junto.
+   *
+   * Rota própria, e não um campo a mais em /users/me/boats, para não mudar a
+   * forma de uma resposta que o mapa já consome.
+   */
+  app.get('/users/me/pier', {}, async (req, reply) => {
+    const userId = (req as any).user?.id;
+    if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+
+    // Mesma contagem que a rota de lançamento usa para recusar — se as duas
+    // divergirem, o app promete uma coisa e o servidor faz outra.
+    const { rows } = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM boats
+        WHERE creator_user_id = $1 AND status = 'active'`,
+      [userId],
+    );
+    const ativos = rows[0].n;
+    const limite = config.antispam.maxActiveBoatsPerUser;
+    return reply.send({ ativos, limite, podeLancar: ativos < limite });
+  });
+
   // ── Conquistas pendentes de comemoração ────────────────────────────────────
   app.get('/users/me/achievements/pending', {}, async (req, reply) => {
     const userId = (req as any).user?.id;
