@@ -5,6 +5,7 @@ import { botRespondSweep } from './bots.js';
 import { journeySweep } from './journey.js';
 import { reengageSweep } from './reengage.js';
 import { avisarChegadas, avisarPrazo, avisarPerdas } from './alerts.js';
+import { podarRastro } from './rastro.js';
 
 export function startScheduler() {
   // Every minute: expire timed-out queue entries and reroute those boats
@@ -59,6 +60,20 @@ export function startScheduler() {
   // Uma vez por dia, às 15h UTC (fim de manhã no Brasil, tarde na Europa):
   // chama de volta quem sumiu. Não reserva barco — ver services/reengage.ts.
   cron.schedule('0 15 * * *', reengageSweep);
+
+  // Uma vez por dia, às 04h UTC: poda o rastro de requisições.
+  //
+  // Uma tabela de log sem poda não é um sistema de log, é uma bomba-relógio:
+  // ela só cresce, e ninguém repara até a conta do banco chegar. A hora é a
+  // mais vazia do dia dos dois lados do Atlântico.
+  cron.schedule('0 4 * * *', async () => {
+    try {
+      const n = await podarRastro();
+      if (n > 0) console.log(`[rastro] podadas ${n} linhas com mais de 30 dias`);
+    } catch (err) {
+      console.error('[rastro] erro na poda', err);
+    }
+  });
 
   console.log('[scheduler] started (inline processing, no Redis)');
 }

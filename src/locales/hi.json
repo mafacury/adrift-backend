@@ -432,5 +432,16 @@
   "O servidor demorou demais para responder. Tente de novo.": "सर्वर को उत्तर देने में बहुत अधिक समय लगा। फिर से प्रयास करें।",
   "mensagens": "संदेश",
   "Países": "देश",
-  "Seu próximo barco: {nome}": "आपकी अगली नाव: {nome}"
+  "Seu próximo barco: {nome}": "आपकी अगली नाव: {nome}",
+  "Excluir a sua conta": "अपना खाता हटाएं",
+  "Excluir a minha conta": "मेरा खाता हटाएं",
+  "Cancelar": "रद्द करें",
+  "Sua senha": "आपका पासवर्ड",
+  "Digite a sua senha para confirmar": "पुष्टि करने के लिए अपना पासवर्ड दर्ज करें",
+  "O seu cadastro é apagado e os seus barcos param de navegar. Isto não volta atrás.": "आपका खाता हटा दिया जाएगा और आपकी नावें नौकायन करना बंद कर देंगी। इसे पूर्ववत नहीं किया जा सकता।",
+  "As mensagens que você já escreveu continuam nos barcos por onde passaram, sem ligação com você — elas fazem parte da história daqueles barcos, e apagá-las tiraria de estranhos algo que eles receberam.": "आप जो संदेश पहले ही लिख चुके हैं वे उन नावों पर बने रहते हैं जिनसे वे गुज़रे हैं, आपसे कोई संबंध नहीं — वे उन नावों के इतिहास का हिस्सा हैं, और उन्हें हटाना अनजान लोगों से वह चीज़ छीनना होगा जो उन्होंने प्राप्त की थी।",
+  "Não foi possível excluir agora. Tente de novo.": "अब हटाना संभव नहीं था। फिर से प्रयास करें।",
+  "Senha incorreta.": "पासवर्ड गलत है।",
+  "Esta conta foi excluída a seu pedido.": "आपके अनुरोध पर यह खाता हटा दिया गया था।",
+  "Esta conta entra pelo Google. Para excluí-la, escreva para contact@adriftapp.fun a partir do e-mail da conta.": "यह खाता Google के माध्यम से लॉग इन होता है। इसे हटाने के लिए, खाते के ईमेल पते से contact@adriftapp.fun को ईमेल करें।"
 }

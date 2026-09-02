@@ -17,6 +17,7 @@ import { captchaLigado } from './services/captcha.js';
 import { conferirIA, estadoDaIA } from './services/moderation.js';
 import { webPushLigado } from './services/notify.js';
 import { envioRealLigado, smtpLigado, conferirSmtp, estadoDoSmtp, sondaDePortas, conferirResend, estadoDoResend } from './services/mail.js';
+import { registrar, codigoDoErro, vaiRegistrar } from './services/rastro.js';
 
 const app = Fastify({ logger: true, trustProxy: true });
 
@@ -174,6 +175,39 @@ app.addHook('preHandler', async (req) => {
      WHERE id = $1 AND last_active_at < NOW() - INTERVAL '5 minutes'`,
     [userId],
   ).catch(() => {});
+});
+
+/**
+ * O rastro.
+ *
+ * Dois ganchos porque as duas informações não estão disponíveis no mesmo
+ * momento: o CORPO da resposta só existe no `onSend`, e o TEMPO só fecha no
+ * `onResponse`. O primeiro guarda o código do erro no próprio `req`, o segundo
+ * grava a linha.
+ *
+ * Fica depois de todos os `preHandler` e antes das rotas de propósito: rota
+ * criada amanhã por alguém que nunca ouviu falar desta tabela já nasce sendo
+ * registrada. Ver services/rastro.ts para o que entra e o que não entra.
+ */
+app.addHook('onSend', async (req, reply, payload) => {
+  if (reply.statusCode >= 400) (req as any).erroDoRastro = codigoDoErro(payload);
+  return payload;
+});
+
+app.addHook('onResponse', async (req, reply) => {
+  // Sem a query string: `/admin/fila?email=fulano@…` levaria o e-mail de outra
+  // pessoa para dentro do log, e o endereço já diz o que precisa dizer.
+  const caminho = req.url.split('?')[0];
+  if (!vaiRegistrar(req.method, caminho, reply.statusCode)) return;
+  registrar({
+    userId: (req as any).user?.id ?? null,
+    reqId: String(req.id),
+    method: req.method,
+    path: caminho,
+    status: reply.statusCode,
+    ms: reply.elapsedTime,
+    erro: (req as any).erroDoRastro ?? null,
+  });
 });
 
 // Routes

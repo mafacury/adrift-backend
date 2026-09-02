@@ -432,5 +432,16 @@
   "O servidor demorou demais para responder. Tente de novo.": "El servidor tardó demasiado en responder. Intenta de nuevo.",
   "mensagens": "mensajes",
   "Países": "Países",
-  "Seu próximo barco: {nome}": "Tu próximo barco: {nome}"
+  "Seu próximo barco: {nome}": "Tu próximo barco: {nome}",
+  "Excluir a sua conta": "Eliminar su cuenta",
+  "Excluir a minha conta": "Eliminar mi cuenta",
+  "Cancelar": "Cancelar",
+  "Sua senha": "Su contraseña",
+  "Digite a sua senha para confirmar": "Escriba su contraseña para confirmar",
+  "O seu cadastro é apagado e os seus barcos param de navegar. Isto não volta atrás.": "Su cuenta será eliminada y sus barcos dejarán de navegar. Esto no se puede deshacer.",
+  "As mensagens que você já escreveu continuam nos barcos por onde passaram, sem ligação com você — elas fazem parte da história daqueles barcos, e apagá-las tiraria de estranhos algo que eles receberam.": "Los mensajes que ya escribió permanecen en los barcos por los que pasaron, sin relación con usted — forman parte de la historia de esos barcos, y borrarlos privaría a extraños de algo que recibieron.",
+  "Não foi possível excluir agora. Tente de novo.": "No fue posible eliminar ahora. Intente de nuevo.",
+  "Senha incorreta.": "Contraseña incorrecta.",
+  "Esta conta foi excluída a seu pedido.": "Esta cuenta fue eliminada a su pedido.",
+  "Esta conta entra pelo Google. Para excluí-la, escreva para contact@adriftapp.fun a partir do e-mail da conta.": "Esta cuenta inicia sesión con Google. Para eliminarla, escriba a contact@adriftapp.fun desde el correo electrónico de la cuenta."
 }

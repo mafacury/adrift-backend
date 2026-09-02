@@ -354,6 +354,79 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
+  // ── GET /admin/rastro ──────────────────────────────────────────────────────
+  /**
+   * O que uma pessoa fez, e o que o servidor respondeu.
+   *
+   * Irmã do /admin/fila acima, e pela mesma razão: quando alguém relata um
+   * problema, a pergunta é sempre "o que aconteceu com ESTA conta ontem à
+   * noite", e ler o código não responde isso. O /admin/fila responde para
+   * barcos; este responde para tudo.
+   *
+   * Sem `?email=`, mostra as falhas recentes do app inteiro — que é a outra
+   * pergunta útil: "o que está quebrando agora, e para quantas pessoas".
+   *
+   * Só entra escrita (o que muda estado) e falha (o que a pessoa viu dar
+   * errado). GET que deu certo não é registrado — ver services/rastro.ts.
+   */
+  app.get<{ Querystring: { email?: string; limite?: string; so_erros?: string } }>(
+    '/admin/rastro',
+    async (req, reply) => {
+      const email = (req.query.email ?? '').trim().toLowerCase();
+      const limite = Math.min(200, parseInt(req.query.limite ?? '60', 10));
+      const soErros = req.query.so_erros === '1';
+
+      if (!email) {
+        // Sem conta: o painel de saúde. As falhas de todo mundo, mais recentes
+        // primeiro, com o e-mail de quem bateu — para dizer se é um problema
+        // de uma pessoa ou de todas.
+        const { rows } = await pool.query(
+          `SELECT r.at, r.method, r.path, r.status, r.ms, r.erro, r.req_id,
+                  u.email
+             FROM request_log r
+             LEFT JOIN users u ON u.id = r.user_id
+            WHERE r.status >= 400
+            ORDER BY r.at DESC
+            LIMIT $1`,
+          [limite],
+        );
+        // O resumo é o que se lê primeiro: mesma rota falhando 40 vezes é
+        // outra história de 40 rotas falhando uma vez cada.
+        const { rows: resumo } = await pool.query(
+          `SELECT path, status, erro, COUNT(*)::int AS vezes,
+                  COUNT(DISTINCT user_id)::int AS pessoas,
+                  MAX(at) AS ultima
+             FROM request_log
+            WHERE status >= 400 AND at > NOW() - INTERVAL '24 hours'
+            GROUP BY path, status, erro
+            ORDER BY vezes DESC
+            LIMIT 20`,
+        );
+        return reply.send({ escopo: 'falhas recentes', resumo, linhas: rows });
+      }
+
+      const { rows: quem } = await pool.query(
+        `SELECT id, email, country_code, lang, ban_status, receiving_paused,
+                deleted_at, last_active_at, created_at
+           FROM users WHERE LOWER(email) = $1`,
+        [email],
+      );
+      if (!quem.length) return reply.code(404).send({ error: 'usuário não encontrado' });
+
+      const { rows } = await pool.query(
+        `SELECT at, method, path, status, ms, erro, req_id
+           FROM request_log
+          WHERE user_id = $1
+            AND ($2::bool = false OR status >= 400)
+          ORDER BY at DESC
+          LIMIT $3`,
+        [quem[0].id, soErros, limite],
+      );
+
+      return reply.send({ usuario: quem[0], linhas: rows });
+    },
+  );
+
   // ── GET /admin/countries ───────────────────────────────────────────────────
   // Lista dos 195 países participantes (barcos só "carimbam" países ativos)
   app.get('/admin/countries', async (_req, reply) => {

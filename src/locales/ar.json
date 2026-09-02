@@ -432,5 +432,16 @@
   "O servidor demorou demais para responder. Tente de novo.": "استغرق الخادم وقتًا طويلاً للرد. حاول مرة أخرى.",
   "mensagens": "رسائل",
   "Países": "البلدان",
-  "Seu próximo barco: {nome}": "قاربك التالي: {nome}"
+  "Seu próximo barco: {nome}": "قاربك التالي: {nome}",
+  "Excluir a sua conta": "حذف حسابك",
+  "Excluir a minha conta": "حذف حسابي",
+  "Cancelar": "إلغاء",
+  "Sua senha": "كلمة المرور الخاصة بك",
+  "Digite a sua senha para confirmar": "أدخل كلمة المرور الخاصة بك للتأكيد",
+  "O seu cadastro é apagado e os seus barcos param de navegar. Isto não volta atrás.": "سيتم حذف حسابك وتتوقف قواربك عن الإبحار. لا يمكن التراجع عن ذلك.",
+  "As mensagens que você já escreveu continuam nos barcos por onde passaram, sem ligação com você — elas fazem parte da história daqueles barcos, e apagá-las tiraria de estranhos algo que eles receberam.": "الرسائل التي كتبتها بالفعل تبقى على القوارب التي مرت بها، دون صلة بك — إنها جزء من تاريخ تلك القوارب، وحذفها سيأخذ من الغرباء شيئًا حصلوا عليه.",
+  "Não foi possível excluir agora. Tente de novo.": "تعذّر الحذف الآن. حاول مرة أخرى.",
+  "Senha incorreta.": "كلمة المرور غير صحيحة.",
+  "Esta conta foi excluída a seu pedido.": "تم حذف هذا الحساب بناءً على طلبك.",
+  "Esta conta entra pelo Google. Para excluí-la, escreva para contact@adriftapp.fun a partir do e-mail da conta.": "تم تسجيل الدخول إلى هذا الحساب عبر Google. لحذفه، اكتب إلى contact@adriftapp.fun من عنوان البريد الإلكتروني الخاص بالحساب."
 }
