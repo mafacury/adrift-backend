@@ -282,7 +282,7 @@ function paginaJornada(d: Dados): string {
       <a href="${APP_URL}" style="display:inline-block;background:#2E86AB;color:#fff;text-decoration:none;
          padding:14px 30px;border-radius:26px;font-size:15px;font-weight:600">Lançar o meu barco</a>
       <p style="margin:14px 0 0;font-size:12px;color:rgba(243,237,224,.5)">
-        Adrift — mensagens em garrafas, de estranho em estranho pelo mundo.
+        Adrift — barcos que levam mensagens de estranho em estranho pelo mundo.
       </p>
     </div>
 

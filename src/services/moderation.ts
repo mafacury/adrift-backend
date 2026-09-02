@@ -27,7 +27,7 @@ function blocklist(text: string): boolean {
 
 const client = new Anthropic({ apiKey: config.anthropicApiKey });
 
-const SYSTEM_PROMPT = `You are a content moderator for a global message-in-a-bottle app called Adrift.
+const SYSTEM_PROMPT = `You are a content moderator for Adrift, a global app where people write messages and launch sailboats that carry them from stranger to stranger around the world.
 Users launch boats carrying short messages (max 500 chars each) that travel from stranger to stranger around the world.
 Your job is to classify new content additions to a boat.
 
