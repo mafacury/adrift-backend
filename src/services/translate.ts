@@ -125,7 +125,9 @@ async function traduzirLote(
   // recusa dos classificadores: devolve o barco no idioma original, sem erro
   if ((res.stop_reason as string) === 'refusal') return [];
 
-  const bloco = res.content.find(b => b.type === 'text');
+  // `b: any` pelo mesmo motivo do `as any` acima: sem os tipos novos do SDK,
+  // `res` chega sem forma e o TypeScript recusa o parâmetro sem anotação.
+  const bloco = res.content.find((b: any) => b.type === 'text');
   if (!bloco || bloco.type !== 'text') return [];
 
   const dados = JSON.parse(bloco.text) as {
