@@ -48,6 +48,38 @@ function espacamentoMin(barcosPorDia: number): number {
 const REVISIT_DAYS     = 21;
 const REVISIT_NEW_MSGS = 15;
 
+/**
+ * Esquecimento: por que as exclusões têm prazo.
+ *
+ * Três regras tiram um barco da lista de alguém: já recebeu (revisita), deixou
+ * expirar, e deixou passar vezes demais. As duas últimas nasceram SEM prazo —
+ * "quem deixou ESTE barco expirar não o recebe de novo", ponto final. Só somam,
+ * nunca esquecem.
+ *
+ * Uma exclusão permanente por evento recorrente é uma torneira que só fecha. O
+ * oceano de cada pessoa encolhe monotonicamente até zero, e o app fica mudo sem
+ * nada quebrar: nenhum erro, nenhum log, os barcos simplesmente passam todos
+ * pelos bots. Em 04/09/2026 foi exatamente isso — o dono não recebia nada havia
+ * dois dias, e dos 47 barcos ativos ZERO conseguiam achar um humano. A conta
+ * fechava: 5 dele, 15 na revisita, 19 expirados, 8 deixados passar. Os 19 e os
+ * 8 eram para sempre.
+ *
+ * Repare que a revisita já tinha recebido este conserto (ver o comentário dela
+ * acima, sobre estrangular comunidade pequena). Estas duas ficaram para trás.
+ * Agora as três esquecem.
+ *
+ * Um barco que atracou de madrugada e expirou não é uma escolha da pessoa — é o
+ * fuso horário. Custar o barco para sempre é caro demais para um acidente.
+ * "Deixar passar" é escolha, sim, mas escolha sobre o barco de HOJE: quinze
+ * mensagens depois ele é outro assunto.
+ *
+ * Os prazos vêm de `ajustesDoFluxo()` (padrão 14 e 30 dias) e giram no painel.
+ * A hora do evento é lida em `expires_at` nos dois casos: para 'expired' ela é
+ * o instante exato; para 'skipped' é o fim do prazo daquela visita, até 12h
+ * depois do toque — erro de 1,6% numa janela de 30 dias, e sempre para o lado
+ * conservador.
+ */
+
 export interface Receiver { id: string; isBot: boolean; country: string | null }
 
 export function haversineKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
@@ -128,12 +160,23 @@ export async function pickNextReceiver(boatId: string): Promise<Receiver | null>
                  WHERE m.boat_id = $1 AND m.created_at > h.hopped_at) < ${REVISIT_NEW_MSGS}
            )
        )
-       -- não ignorou este barco além do limite
-       AND (SELECT COALESCE(SUM(count), 0) FROM boat_ignore_counts
-            WHERE boat_id = $1 AND user_id = u.id) < $2
-       -- quem deixou ESTE barco expirar não o recebe de novo
-       AND u.id NOT IN (SELECT user_id FROM receiver_queue
-                        WHERE boat_id = $1 AND status = 'expired')
+       -- deixou este barco passar vezes demais — contando só o que é recente.
+       -- A fonte passou a ser a fila e nao a tabela boat_ignore_counts: aquele
+       -- contador não guarda QUANDO: é um número que só sobe, e sem data não
+       -- há como esquecer. A fila tem a data de cada visita.
+       AND (SELECT COUNT(*) FROM receiver_queue rqi
+            WHERE rqi.boat_id = $1 AND rqi.user_id = u.id
+              AND rqi.status = 'skipped'
+              AND rqi.expires_at > NOW() - INTERVAL '${ajustes.janelaDeixarPassarDias} days'
+           ) < $2
+       -- deixou este barco expirar — fica de fora durante a carência, não para
+       -- sempre. Ver o bloco "Esquecimento" no topo.
+       AND NOT EXISTS (
+         SELECT 1 FROM receiver_queue rqe
+         WHERE rqe.boat_id = $1 AND rqe.user_id = u.id
+           AND rqe.status = 'expired'
+           AND rqe.expires_at > NOW() - INTERVAL '${ajustes.carenciaExpiradoDias} days'
+       )
        -- teto de fila (anti-enchente)
        AND (SELECT COUNT(*) FROM receiver_queue rq2
             WHERE rq2.user_id = u.id AND rq2.status = 'pending') < ${ajustes.filaMaxima}

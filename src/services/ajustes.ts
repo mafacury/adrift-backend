@@ -68,6 +68,8 @@ export async function ajustesDoFluxo(): Promise<{
   barcosPorDia: number;
   filaMaxima: number;
   prazoRespostaHoras: number;
+  carenciaExpiradoDias: number;
+  janelaDeixarPassarDias: number;
 }> {
   const t = await tabela();
   const n = (chave: string, padrao: number) => {
@@ -81,5 +83,9 @@ export async function ajustesDoFluxo(): Promise<{
     barcosPorDia:       n('barcos_por_dia', 8),
     filaMaxima:         n('fila_maxima', 2),
     prazoRespostaHoras: n('prazo_resposta_horas', 12),
+    // Os dois prazos de esquecimento. Ver o bloco "Esquecimento" em
+    // services/routing.ts para por que eles existem.
+    carenciaExpiradoDias:   n('carencia_expirado_dias', 14),
+    janelaDeixarPassarDias: n('janela_deixar_passar_dias', 30),
   };
 }
