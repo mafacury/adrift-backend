@@ -39,9 +39,26 @@ function carregar(): Record<string, Record<string, string>> {
 
 const DICIONARIOS = carregar();
 
+/**
+ * O idioma pedido, se o servidor o fala. Senão, depende de QUAL "senão":
+ *
+ *   nada (nulo, vazio)  → português. É a coluna `lang` das pessoas que já
+ *                         existiam antes da migração 028, e ela é nula porque
+ *                         ninguém sabia — mas essas pessoas são as primeiras do
+ *                         app, brasileiras, e já vinham recebendo tudo em
+ *                         português. Mudá-las para inglês seria trocar a língua
+ *                         de gente real por causa de um dado ausente.
+ *   código que não falamos (uk, ru, it…) → INGLÊS.
+ *
+ * Essa segunda linha é a correção de 04/09/2026. Antes, ucraniano caía em
+ * português: o mesmo bug que apareceu na tela do app (ver o comentário em
+ * mobile/services/i18n.ts) e que aqui saía por e-mail e por push, onde é ainda
+ * pior — a pessoa recebe e não tem nem como trocar o idioma.
+ */
 export function idiomaSuportado(codigo: string | null | undefined): string {
   const c = String(codigo ?? '').slice(0, 2).toLowerCase();
-  return c === 'pt' || IDIOMAS.includes(c) ? c : 'pt';
+  if (c === 'pt' || IDIOMAS.includes(c)) return c;
+  return c === '' ? 'pt' : 'en';
 }
 
 /**
@@ -64,13 +81,15 @@ export function tr(
   return saida;
 }
 
-/** O idioma de uma pessoa. Cai em português quando não se sabe. */
+/** O idioma de uma pessoa. A regra do "não sei" mora em `idiomaSuportado`. */
 export async function idiomaDoUsuario(userId: string): Promise<string> {
   try {
     const { rows } = await pool.query('SELECT lang FROM users WHERE id = $1', [userId]);
     return idiomaSuportado(rows[0]?.lang);
   } catch {
-    return 'pt';
+    // Banco fora do ar é o mesmo estado de coluna nula: não se sabe. Passar
+    // pela mesma função evita duas regras para a mesma pergunta.
+    return idiomaSuportado(null);
   }
 }
 
