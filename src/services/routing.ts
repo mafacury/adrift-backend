@@ -226,9 +226,13 @@ export async function enqueueForReceiver(
   const { prazoRespostaHoras } = await ajustesDoFluxo();
   const expiresAt = new Date(arrivesAt.getTime() + prazoRespostaHoras * 60 * 60 * 1000);
   await pool.query(
+    // O alvo e o predicado do ON CONFLICT não são enfeite: a trava é um ÍNDICE
+    // PARCIAL (migração 036), e `ON CONFLICT DO NOTHING` sem alvo não enxerga
+    // índice parcial nenhum. Sem estas duas linhas a cláusula volta a ser o que
+    // foi até 07/09/2026 — decoração que nunca disparou.
     `INSERT INTO receiver_queue (boat_id, user_id, arrives_at, expires_at, dest_country)
      VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT DO NOTHING`,
+     ON CONFLICT (boat_id, user_id) WHERE status = 'pending' DO NOTHING`,
     [boatId, userId, arrivesAt, expiresAt, opts.destCountry],
   );
 }
