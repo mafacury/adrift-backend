@@ -42,7 +42,14 @@ export async function excluirConta(userId: string): Promise<void> {
       `UPDATE users
           SET email = $2,
               password_hash = NULL,
-              country_code = NULL,
+              -- 'XX' e nao NULL: a coluna e NOT NULL DEFAULT 'XX' desde a
+              -- migracao 002, e o NULL daqui fazia a exclusao INTEIRA falhar
+              -- com 500 — ninguem conseguia apagar a conta, embora o Termo
+              -- prometesse. Descoberto em 07/09/2026, testando em producao.
+              -- 'XX' e o marcador de "pais desconhecido" que o app inteiro ja
+              -- usa (services/geo.ts), entao anonimiza igual e nao mente:
+              -- depois da exclusao nao ha mais pais nenhum para saber.
+              country_code = 'XX',
               lang = NULL,
               fcm_token = NULL,
               ref_code = NULL,
