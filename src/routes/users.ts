@@ -664,15 +664,17 @@ export async function userRoutes(app: FastifyInstance) {
 
   // ── GET /users/me/celebrations ─────────────────────────────────────────────
   //
-  // O que ainda merece festa. Dois tipos, na mesma fila, do mais antigo para o
+  // O que ainda merece festa. Três tipos, na mesma fila, do mais antigo para o
   // mais novo — a ordem importa: quem abre o app depois de dois dias vê a
   // história na ordem em que aconteceu, não embaralhada.
   //
   //   presente  um estranho deixou um presente num barco meu
   //   evolucao  um barco meu subiu de nível
+  //   chegada   um barco meu voltou para casa e encerrou a jornada
   //
   // O corte de cada um vem de um rastro diferente: presente é relógio
-  // (users.gifts_seen_at), evolução é nível por barco (boats.stage_seen).
+  // (users.gifts_seen_at), evolução é nível por barco (boats.stage_seen),
+  // chegada é marca por barco (boats.chegada_vista_at, migração 037).
   app.get(
     '/users/me/celebrations',
     {},
@@ -742,6 +744,47 @@ export async function userRoutes(app: FastifyInstance) {
         [userId],
       );
 
+      // ── barcos que voltaram para casa e ninguém recebeu
+      //
+      // O fim da jornada já avisava por push e e-mail; dentro do app passava em
+      // silêncio. Aqui ele vira a terceira comemoração — e, ao contrário das
+      // outras duas, ela não toma a tela sozinha: o app mostra um aviso e a
+      // pessoa escolhe a hora de abrir. Voltar para casa é desfecho, não
+      // sobressalto.
+      const { rows: chegadas } = await pool.query(
+        `SELECT b.id AS boat_id, LEFT(b.id::text, 5) AS boat_code,
+                b.stage, b.archived_at, b.archive_reason,
+                b.home_country, b.total_nm, b.unique_countries,
+                (SELECT COUNT(*)::int FROM boat_messages
+                  WHERE boat_id = b.id AND user_id <> $1) AS mensagens
+           FROM boats b
+          WHERE b.creator_user_id = $1
+            AND b.status = 'archived'
+            AND b.chegada_vista_at IS NULL
+          ORDER BY b.archived_at ASC
+          LIMIT 5`,
+        [userId],
+      );
+
+      // O que cada barco trouxe no porão. Vai embaixo do barco na cerimônia —
+      // é a parte que a pessoa não viu acontecer, porque os presentes entraram
+      // enquanto ela não estava olhando.
+      const porao = new Map<string, { id: string; name: string; emoji: string; quantos: number }[]>();
+      for (const c of chegadas) {
+        const { rows } = await pool.query(
+          `SELECT gift_id, COUNT(*)::int AS quantos
+             FROM boat_messages
+            WHERE boat_id = $1 AND gift_id IS NOT NULL
+            GROUP BY gift_id
+            ORDER BY COUNT(*) DESC`,
+          [c.boat_id],
+        );
+        porao.set(c.boat_id, rows.map((r) => {
+          const g = giftInfo(r.gift_id);
+          return { id: r.gift_id, name: g?.name ?? r.gift_id, emoji: g?.emoji ?? '🎁', quantos: r.quantos };
+        }));
+      }
+
       // Uma comemoração de presente pode reaparecer se o "vi" não chegou ao
       // servidor. Marcando quais já foram agradecidos, o botão não convida a
       // repetir o que o banco vai recusar de qualquer forma.
@@ -773,6 +816,19 @@ export async function userRoutes(app: FastifyInstance) {
           para: e.stage as number,
           initialMessage: e.initial_message as string,
         })),
+        ...chegadas.map((c) => ({
+          tipo: 'chegada' as const,
+          quando: c.archived_at,
+          boatId: c.boat_id,
+          boatCode: c.boat_code,
+          stage: c.stage as number,
+          motivo: (c.archive_reason ?? 'perdido') as string,
+          homeCountry: c.home_country as string | null,
+          milhas: Math.round((c.total_nm ?? 0) as number),
+          paises: (c.unique_countries ?? 0) as number,
+          mensagens: c.mensagens as number,
+          porao: porao.get(c.boat_id) ?? [],
+        })),
       ].sort((a, b) => new Date(a.quando).getTime() - new Date(b.quando).getTime());
 
       return reply.send({ celebracoes: fila });
@@ -783,13 +839,13 @@ export async function userRoutes(app: FastifyInstance) {
   //
   // Uma comemoração por vez, conforme a pessoa fecha. Acusar em bloco seria
   // mais simples e apagaria o que chegou entre a consulta e o fechamento.
-  app.post<{ Body: { giftUntil?: string; giftMessageId?: string; boatId?: string; stage?: number } }>(
+  app.post<{ Body: { giftUntil?: string; giftMessageId?: string; boatId?: string; stage?: number; chegadaBoatId?: string } }>(
     '/users/me/celebrations/ack',
     {},
     async (req, reply) => {
       const userId = (req as any).user?.id;
       if (!userId) return reply.code(401).send({ error: 'unauthorized' });
-      const { giftUntil, giftMessageId, boatId, stage } = req.body ?? {};
+      const { giftUntil, giftMessageId, boatId, stage, chegadaBoatId } = req.body ?? {};
 
       // ── O corte dos presentes ────────────────────────────────────────────
       //
@@ -831,6 +887,22 @@ export async function userRoutes(app: FastifyInstance) {
           `UPDATE boats SET stage_seen = GREATEST(COALESCE(stage_seen, 1), $3)
             WHERE id = $2 AND creator_user_id = $1`,
           [userId, boatId, stage],
+        );
+      }
+
+      // A chegada tem CAMPO PRÓPRIO (`chegadaBoatId`) e não reaproveita o
+      // `boatId` acima de propósito: aquele só age acompanhado de `stage`, e
+      // um dia alguém mandaria os dois juntos sem querer. Nomes distintos para
+      // atos distintos — aqui o engano é silencioso, porque marcar a chegada
+      // como vista sem a pessoa ter visto apaga a cerimônia para sempre.
+      //
+      // `COALESCE` no lugar de sobrescrever: se por qualquer motivo a marca já
+      // existir, a primeira data é a verdadeira.
+      if (chegadaBoatId) {
+        await pool.query(
+          `UPDATE boats SET chegada_vista_at = COALESCE(chegada_vista_at, NOW())
+            WHERE id = $2 AND creator_user_id = $1 AND status = 'archived'`,
+          [userId, chegadaBoatId],
         );
       }
       return reply.send({ status: 'ok' });
