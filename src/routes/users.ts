@@ -523,6 +523,48 @@ export async function userRoutes(app: FastifyInstance) {
     return reply.send(data);
   });
 
+  // ── GET /stats/map ─────────────────────────────────────────────────────────
+  // Os portos do mundo, agregados: um ponto por país e quantos barcos já
+  // atracaram nele. Alimenta o mapa da página pública (adriftapp.fun/world-map),
+  // que é servida como HTML estático e busca isto do navegador.
+  //
+  // SÓ CONTAGEM. Nenhuma mensagem, nenhum usuário, nada que diga quem escreveu
+  // o quê — a mesma régua da página /j/:id, e pelo mesmo motivo: quem escreve
+  // no Adrift escreve para um barco, não para a internet.
+  //
+  // O nome do país NÃO vem daqui. A tabela só tem `name_pt`, e a página é em
+  // inglês; quem traduz os 195 é o `Intl.DisplayNames` do próprio navegador,
+  // como já fazemos no app. Daqui sai código, posição e número.
+  //
+  // Cache de 30 minutos, mais longo que o do /stats: esta página é pública e
+  // sem sessão, então um robô pode bater nela em rajada, e a consulta varre o
+  // boat_countries inteiro. Meia hora de atraso não muda a prova que a página
+  // está dando.
+  let mapaCache: { at: number; data: any } | null = null;
+  app.get('/stats/map', {}, async (_req, reply) => {
+    if (mapaCache && Date.now() - mapaCache.at < 30 * 60_000) {
+      return reply.send(mapaCache.data);
+    }
+    const { rows } = await pool.query(
+      `SELECT bc.country_code AS code, c.lat, c.lon, COUNT(*)::int AS boats
+         FROM boat_countries bc
+         JOIN countries c ON c.code = bc.country_code
+        WHERE c.lat IS NOT NULL AND c.lon IS NOT NULL
+        GROUP BY bc.country_code, c.lat, c.lon
+        ORDER BY boats DESC, bc.country_code`,
+    );
+    const data = {
+      ports: rows.map((r: any) => ({
+        code: r.code,
+        lat: Number(r.lat),
+        lon: Number(r.lon),
+        boats: Number(r.boats),
+      })),
+    };
+    mapaCache = { at: Date.now(), data };
+    return reply.send(data);
+  });
+
   // ── GET /countries ─────────────────────────────────────────────────────────
   // Lista para o seletor de país. Só os ativos: o admin desliga países onde o
   // app não deve operar, e eles não podem aparecer como opção.
