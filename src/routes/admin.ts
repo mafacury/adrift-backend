@@ -18,8 +18,22 @@ export async function adminRoutes(app: FastifyInstance) {
   app.get('/admin/stats', async (_req, reply) => {
     const { rows } = await pool.query(`
       SELECT
-        (SELECT COUNT(*)::int FROM users)                                         AS total_users,
-        (SELECT COUNT(*)::int FROM users WHERE ban_status = 'banned')             AS banned_users,
+        -- Gente. Sem bot e sem conta excluída.
+        --
+        -- Até 07/09/2026 isto era um COUNT(*) sobre users inteiro, e ali moravam
+        -- os 12 bots do motor mais quem já tinha pedido para sair: o painel
+        -- dizia 39 usuários quando havia 24 pessoas. Número inflado em 62% é
+        -- pior que número nenhum — com nenhum a gente vai olhar o banco; com
+        -- este a gente decide errado achando que sabe.
+        (SELECT COUNT(*)::int FROM users
+           WHERE oauth_provider IS DISTINCT FROM 'bot'
+             AND deleted_at IS NULL)                                             AS total_users,
+        -- Os dois que saíram da conta acima, contados à parte: o painel mostra
+        -- o que está escondendo, em vez de simplesmente esconder.
+        (SELECT COUNT(*)::int FROM users WHERE oauth_provider = 'bot')            AS bots,
+        (SELECT COUNT(*)::int FROM users WHERE deleted_at IS NOT NULL)            AS deleted_users,
+        (SELECT COUNT(*)::int FROM users
+           WHERE ban_status = 'banned' AND deleted_at IS NULL)                    AS banned_users,
         (SELECT COUNT(*)::int FROM boats WHERE status = 'active')                 AS active_boats,
         (SELECT COUNT(*)::int FROM boats)                                         AS total_boats,
         (SELECT COUNT(*)::int FROM boat_messages)                                 AS total_messages,
@@ -27,13 +41,15 @@ export async function adminRoutes(app: FastifyInstance) {
            WHERE created_at > NOW() - INTERVAL '24 hours')                        AS messages_today,
         (SELECT COUNT(*)::int FROM reports)                                       AS total_reports,
         (SELECT COUNT(*)::int FROM users
-           WHERE created_at > NOW() - INTERVAL '7 days')                          AS new_users_week
+           WHERE created_at > NOW() - INTERVAL '7 days'
+             AND oauth_provider IS DISTINCT FROM 'bot'
+             AND deleted_at IS NULL)                                              AS new_users_week
     `);
     return reply.send(rows[0]);
   });
 
   // ── GET /admin/users ───────────────────────────────────────────────────────
-  app.get<{ Querystring: { page?: string; limit?: string; search?: string; status?: string } }>(
+  app.get<{ Querystring: { page?: string; limit?: string; search?: string; status?: string; incluir_apagadas?: string } }>(
     '/admin/users',
     async (req, reply) => {
       const page   = Math.max(1, parseInt(req.query.page  ?? '1', 10));
@@ -41,26 +57,32 @@ export async function adminRoutes(app: FastifyInstance) {
       const offset = (page - 1) * limit;
       const search = req.query.search ?? null;
       const status = req.query.status ?? null;
+      // Escondidas por padrão. Não apagadas da consulta: o rastro de quem saiu
+      // ainda responde "o que aconteceu antes de a pessoa ir embora", e essa é
+      // justamente a pergunta que se faz depois que ela vai.
+      const comApagadas = req.query.incluir_apagadas === '1';
 
       const { rows } = await pool.query(
         `SELECT
            u.id, u.email, u.country_code, u.reputation_score,
            u.ban_status, u.role, u.created_at, u.last_active_at,
-           u.email_verified,
+           u.email_verified, u.deleted_at,
            (SELECT COUNT(*)::int FROM boats WHERE creator_user_id = u.id) AS boat_count
          FROM users u
          WHERE ($1::text IS NULL OR u.email ILIKE '%' || $1 || '%')
            AND ($2::text IS NULL OR u.ban_status = $2)
+           AND ($5::bool OR u.deleted_at IS NULL)
          ORDER BY u.created_at DESC
          LIMIT $3 OFFSET $4`,
-        [search, status, limit, offset],
+        [search, status, limit, offset, comApagadas],
       );
 
       const { rows: cnt } = await pool.query(
         `SELECT COUNT(*)::int AS total FROM users
          WHERE ($1::text IS NULL OR email ILIKE '%' || $1 || '%')
-           AND ($2::text IS NULL OR ban_status = $2)`,
-        [search, status],
+           AND ($2::text IS NULL OR ban_status = $2)
+           AND ($3::bool OR deleted_at IS NULL)`,
+        [search, status, comApagadas],
       );
 
       return reply.send({ users: rows, total: cnt[0].total, page, limit });
@@ -76,6 +98,30 @@ export async function adminRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const { id } = req.params;
       const { ban_status, role, email_verified } = req.body ?? {};
+
+      /**
+       * Conta excluída não recebe mais nenhuma ação.
+       *
+       * Advertir, banir ou promover quem já pediu para sair não faz sentido em
+       * nenhuma leitura: a pessoa não volta, e a conta só existe como registro.
+       * Banir alguém que se foi é, além de inútil, o tipo de dado errado que
+       * depois vira estatística.
+       *
+       * A trava mora AQUI, e não só na tela. Até 07/09/2026 não existia em
+       * lugar nenhum: os botões apareciam para conta apagada e o servidor
+       * obedecia. Esconder o botão não impede a chamada — quem tem o painel
+       * aberto numa aba antiga continua mandando.
+       */
+      const { rows: alvo } = await pool.query(
+        'SELECT deleted_at FROM users WHERE id = $1', [id],
+      );
+      if (!alvo.length) return reply.code(404).send({ error: 'usuário não encontrado' });
+      if (alvo[0].deleted_at) {
+        return reply.code(409).send({
+          error: 'conta_excluida',
+          message: 'Esta conta foi excluída. Não há mais ação administrativa possível sobre ela.',
+        });
+      }
 
       /**
        * Liberar à mão quem não conseguiu confirmar o e-mail.
