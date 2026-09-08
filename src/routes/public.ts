@@ -50,6 +50,33 @@ const ESTAGIO: Record<number, string> = {
   5: 'Errante', 6: 'Bravia', 7: 'Soberana', 8: 'Nau Lendária',
 };
 
+/**
+ * O endereço por onde ESTA página foi pedida.
+ *
+ * O `canonical` e o `og:url` precisam dizer a mesma URL que a pessoa colou —
+ * se disserem outra, o WhatsApp mostra o cartão de um endereço e o link leva a
+ * outro, e o Google escolhe qual das duas indexar.
+ *
+ * Vem do pedido, e não de uma constante, porque este servidor vai passar a
+ * responder por mais de um endereço: hoje o `…up.railway.app`, amanhã um
+ * domínio nosso apontado para o mesmo lugar. Assim a virada não precisa de
+ * mudança de código nenhuma — a página se descreve pelo endereço em que foi
+ * encontrada.
+ *
+ * `x-forwarded-proto` é quem sabe o esquema: atrás do proxy da Railway, a
+ * conexão que chega aqui é http mesmo quando o visitante veio por https.
+ */
+function origemDoPedido(req: { headers: Record<string, any> }): string {
+  const host = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '')
+    .split(',')[0].trim();
+  const proto = String(req.headers['x-forwarded-proto'] ?? 'https')
+    .split(',')[0].trim();
+  // Sem host não há URL honesta a dar: cai no endereço do site, que é onde a
+  // pessoa acaba de qualquer jeito.
+  if (!host) return APP_URL;
+  return `${proto}://${host}`;
+}
+
 /** Escapa o que vai para o HTML. Nome de país vem do banco, mas confiar é hábito ruim. */
 function esc(s: string): string {
   return String(s).replace(/[&<>"']/g, (c) => (
@@ -154,6 +181,7 @@ export async function publicRoutes(app: FastifyInstance) {
 
     return reply.type('text/html; charset=utf-8').send(
       paginaJornada({
+        url: `${origemDoPedido(req)}/j/${id}`,
         titulo, resumo, codigo, modelo, selo, emCasa, dias,
         paises: b.unique_countries ?? 0,
         milhas,
@@ -174,6 +202,8 @@ export async function publicRoutes(app: FastifyInstance) {
 }
 
 interface Dados {
+  /** O endereço desta própria página, como ela foi pedida. Ver origemDoPedido. */
+  url: string;
   titulo: string; resumo: string; codigo: string; modelo: string; selo: string;
   emCasa: boolean; dias: number; paises: number; milhas: number;
   escreveram: number; portos: string[]; idiomas: number;
@@ -216,7 +246,9 @@ function paginaJornada(d: Dados): string {
 <meta property="og:description" content="${esc(d.resumo)}">
 <meta property="og:image" content="${APP_URL}/logo-email.png">
 <meta property="og:site_name" content="Adrift">
+<meta property="og:url" content="${esc(d.url)}">
 <meta name="twitter:card" content="summary">
+<link rel="canonical" href="${esc(d.url)}">
 </head>
 <body style="margin:0;background:#0B1A2E;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
   <div style="max-width:560px;margin:0 auto;padding:28px 18px 40px">
