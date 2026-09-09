@@ -498,5 +498,8 @@
   "Se não foi você que se cadastrou, ignore esta mensagem — sem a confirmação a conta não é usada por ninguém.": "もしあなたが登録したのではないなら、このメッセージを無視してください — 確認がなければそのアカウントは誰にも使われません。",
   "{n} país": "{n}か国",
   "Escreva um pouco mais: uma mensagem precisa de pelo menos {n} caracteres.": "もう少し書いてください。メッセージには少なくとも{n}文字必要です。",
-  "mínimo de {n} caracteres": "{n}文字以上"
+  "mínimo de {n} caracteres": "{n}文字以上",
+  "O seu barco já partiu": "あなたの舟はもう出航しました",
+  "Uma travessia leva horas — o mar do Adrift não tem pressa.\nO primeiro barco de outra pessoa chega até você em breve.": "航海には何時間もかかります。Adrift の海は急ぎません。\n誰かの最初の舟がまもなくあなたのもとへ届きます。",
+  "Nenhum barco vindo para você ainda.\nLance o seu no Pier e o oceano começa a responder.": "まだあなたへ向かう舟はありません。\nPier からあなたの舟を出せば、海が応え始めます。"
 }

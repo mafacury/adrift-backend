@@ -498,5 +498,8 @@
   "Se não foi você que se cadastrou, ignore esta mensagem — sem a confirmação a conta não é usada por ninguém.": "Si no fuiste tú quien se registró, ignora este mensaje — sin la confirmación la cuenta no será usada por nadie.",
   "{n} país": "{n} país",
   "Escreva um pouco mais: uma mensagem precisa de pelo menos {n} caracteres.": "Escribe un poco más: un mensaje necesita al menos {n} caracteres.",
-  "mínimo de {n} caracteres": "mínimo {n} caracteres"
+  "mínimo de {n} caracteres": "mínimo {n} caracteres",
+  "O seu barco já partiu": "Tu barco ya zarpó",
+  "Uma travessia leva horas — o mar do Adrift não tem pressa.\nO primeiro barco de outra pessoa chega até você em breve.": "Una travesía lleva horas: el mar de Adrift no tiene prisa.\nEl primer barco de otra persona llegará pronto.",
+  "Nenhum barco vindo para você ainda.\nLance o seu no Pier e o oceano começa a responder.": "Todavía no hay ningún barco en camino.\nLanza el tuyo en el Pier y el océano empezará a responder."
 }

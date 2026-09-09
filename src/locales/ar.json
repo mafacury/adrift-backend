@@ -498,5 +498,8 @@
   "Se não foi você que se cadastrou, ignore esta mensagem — sem a confirmação a conta não é usada por ninguém.": "إذا لم تكن أنت من سجّل، فتجاهل هذه الرسالة — بدون التأكيد لن يستخدم الحسابه أحد.",
   "{n} país": "{n} دولة",
   "Escreva um pouco mais: uma mensagem precisa de pelo menos {n} caracteres.": "اكتب أكثر قليلًا: تحتاج الرسالة إلى {n} أحرف على الأقل.",
-  "mínimo de {n} caracteres": "{n} أحرف على الأقل"
+  "mínimo de {n} caracteres": "{n} أحرف على الأقل",
+  "O seu barco já partiu": "قاربك أبحر بالفعل",
+  "Uma travessia leva horas — o mar do Adrift não tem pressa.\nO primeiro barco de outra pessoa chega até você em breve.": "تستغرق الرحلة ساعات — بحر Adrift لا يستعجل.\nسيصلك أول قارب من شخص آخر قريبًا.",
+  "Nenhum barco vindo para você ainda.\nLance o seu no Pier e o oceano começa a responder.": "لا يوجد قارب في طريقه إليك بعد.\nأطلق قاربك من الـ Pier وسيبدأ المحيط في الرد."
 }

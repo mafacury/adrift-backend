@@ -154,6 +154,24 @@ export async function adminRoutes(app: FastifyInstance) {
         );
         await pool.query('UPDATE users SET ban_status = $1 WHERE id = $2', [ban_status, id]);
         if (ban_status === 'banned' && antes[0]?.ban_status !== 'banned') {
+          // Barco de conta banida sai do mar — igual ao banimento automático
+          // (services/enforcement.ts). Até 09/09/2026 só o automático fazia
+          // isto: banir pela tela bloqueava a conta e deixava os barcos dela
+          // navegando de estranho em estranho, que é justamente o que se quer
+          // parar quando se bane alguém à mão.
+          //
+          // Esta é uma das poucas exclusões que PODEM ser permanentes: a regra
+          // do projeto é que exclusão por evento recorrente precisa de prazo,
+          // e banimento não é recorrente — é único e definitivo. Ver a memória
+          // "o oceano que só encolhia".
+          const { rowCount } = await pool.query(
+            `UPDATE boats
+                SET status = 'archived', archived_at = NOW(),
+                    archive_reason = 'autor banido'
+              WHERE creator_user_id = $1 AND status = 'active'`,
+            [id],
+          );
+          console.log(`[admin] usuário ${id} banido à mão — ${rowCount ?? 0} barco(s) arquivado(s)`);
           void avisarBanimento(id);
         }
       }

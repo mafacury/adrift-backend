@@ -483,7 +483,38 @@ export async function userRoutes(app: FastifyInstance) {
         if (inc[0]) incoming = { secondsUntil: inc[0].secs_until, totalSeconds: inc[0].total_secs };
       }
 
-      return reply.send({ boat, incoming });
+      // ── Quem está esperando o PRIMEIRO barco da vida ──────────────────────
+      //
+      // O mar vazio diz a mesma frase para duas pessoas muito diferentes: quem
+      // já recebeu barcos e está num intervalo, e quem acabou de se cadastrar e
+      // ainda não viu nada acontecer. Para a segunda, "nenhum barco vindo para
+      // você" é a primeira coisa que o Adrift diz — e ela é desanimadora e
+      // incompleta: o barco DELA já está no mar, e o primeiro de outra pessoa
+      // leva horas para atravessar.
+      //
+      // As duas perguntas só são feitas quando o mar está vazio: é o único caso
+      // em que a resposta muda alguma coisa na tela, e esta rota é consultada a
+      // cada 30 segundos enquanto a pessoa espera.
+      let primeiraEspera = false;
+      let temBarcoNoMar = false;
+      if (!boat && !incoming) {
+        const { rows: r } = await pool.query(
+          `SELECT
+             NOT EXISTS (
+               SELECT 1 FROM receiver_queue
+                WHERE user_id = $1 AND arrives_at <= NOW()
+             ) AS primeira,
+             EXISTS (
+               SELECT 1 FROM boats
+                WHERE creator_user_id = $1 AND status = 'active'
+             ) AS tem_barco`,
+          [userId],
+        );
+        primeiraEspera = !!r[0]?.primeira;
+        temBarcoNoMar  = !!r[0]?.tem_barco;
+      }
+
+      return reply.send({ boat, incoming, primeiraEspera, temBarcoNoMar });
     },
   );
 

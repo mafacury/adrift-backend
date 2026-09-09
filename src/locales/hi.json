@@ -498,5 +498,8 @@
   "Se não foi você que se cadastrou, ignore esta mensagem — sem a confirmação a conta não é usada por ninguém.": "यदि आपने पंजीकरण नहीं किया है, तो इस संदेश की अनदेखी करें — बिना पुष्टिकरण के यह खाता किसी के द्वारा उपयोग नहीं किया जाएगा।",
   "{n} país": "{n} देश",
   "Escreva um pouco mais: uma mensagem precisa de pelo menos {n} caracteres.": "थोड़ा और लिखिए: एक संदेश में कम से कम {n} अक्षर चाहिए।",
-  "mínimo de {n} caracteres": "कम से कम {n} अक्षर"
+  "mínimo de {n} caracteres": "कम से कम {n} अक्षर",
+  "O seu barco já partiu": "आपकी नाव रवाना हो चुकी है",
+  "Uma travessia leva horas — o mar do Adrift não tem pressa.\nO primeiro barco de outra pessoa chega até você em breve.": "एक यात्रा में घंटों लगते हैं — Adrift का समुद्र जल्दी में नहीं है।\nकिसी और की पहली नाव जल्द ही आप तक पहुँचेगी।",
+  "Nenhum barco vindo para você ainda.\nLance o seu no Pier e o oceano começa a responder.": "अभी आपके लिए कोई नाव नहीं आ रही है।\nPier से अपनी नाव रवाना कीजिए और समुद्र जवाब देने लगेगा।"
 }
