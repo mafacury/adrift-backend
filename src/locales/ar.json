@@ -496,5 +496,7 @@
   "Senha incorreta.": "كلمة المرور غير صحيحة.",
   "Se não foi você, ignore esta mensagem. Nada muda enquanto o link não for usado, e a sua senha atual continua valendo.": "إذا لم تكن أنت، فتجاهل هذه الرسالة. لن يتغير شيء ما لم يُستخدم الرابط، وكلمة المرور الحالية تظل سارية.",
   "Se não foi você que se cadastrou, ignore esta mensagem — sem a confirmação a conta não é usada por ninguém.": "إذا لم تكن أنت من سجّل، فتجاهل هذه الرسالة — بدون التأكيد لن يستخدم الحسابه أحد.",
-  "{n} país": "{n} دولة"
+  "{n} país": "{n} دولة",
+  "Escreva um pouco mais: uma mensagem precisa de pelo menos {n} caracteres.": "اكتب أكثر قليلًا: تحتاج الرسالة إلى {n} أحرف على الأقل.",
+  "mínimo de {n} caracteres": "{n} أحرف على الأقل"
 }

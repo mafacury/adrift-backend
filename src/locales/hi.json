@@ -496,5 +496,7 @@
   "Senha incorreta.": "पासवर्ड गलत है।",
   "Se não foi você, ignore esta mensagem. Nada muda enquanto o link não for usado, e a sua senha atual continua valendo.": "यदि यह आप नहीं थे, तो इस संदेश की अनदेखी करें। जब तक लिंक का उपयोग नहीं होता, कुछ भी नहीं बदलेगा, और आपका मौजूदा पासवर्ड वैध रहेगा।",
   "Se não foi você que se cadastrou, ignore esta mensagem — sem a confirmação a conta não é usada por ninguém.": "यदि आपने पंजीकरण नहीं किया है, तो इस संदेश की अनदेखी करें — बिना पुष्टिकरण के यह खाता किसी के द्वारा उपयोग नहीं किया जाएगा।",
-  "{n} país": "{n} देश"
+  "{n} país": "{n} देश",
+  "Escreva um pouco mais: uma mensagem precisa de pelo menos {n} caracteres.": "थोड़ा और लिखिए: एक संदेश में कम से कम {n} अक्षर चाहिए।",
+  "mínimo de {n} caracteres": "कम से कम {n} अक्षर"
 }

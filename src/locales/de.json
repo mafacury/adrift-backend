@@ -496,5 +496,7 @@
   "Senha incorreta.": "Falsches Passwort.",
   "Se não foi você, ignore esta mensagem. Nada muda enquanto o link não for usado, e a sua senha atual continua valendo.": "Wenn Sie es nicht waren, ignorieren Sie diese Nachricht. Solange der Link nicht verwendet wird, ändert sich nichts, und Ihr aktuelles Passwort bleibt gültig.",
   "Se não foi você que se cadastrou, ignore esta mensagem — sem a confirmação a conta não é usada por ninguém.": "Wenn Sie sich nicht registriert haben, ignorieren Sie diese Nachricht — ohne Bestätigung wird das Konto von niemandem genutzt.",
-  "{n} país": "{n} Land"
+  "{n} país": "{n} Land",
+  "Escreva um pouco mais: uma mensagem precisa de pelo menos {n} caracteres.": "Schreib noch etwas mehr: Eine Nachricht braucht mindestens {n} Zeichen.",
+  "mínimo de {n} caracteres": "mindestens {n} Zeichen"
 }

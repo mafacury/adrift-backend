@@ -496,5 +496,7 @@
   "Senha incorreta.": "パスワードが正しくありません。",
   "Se não foi você, ignore esta mensagem. Nada muda enquanto o link não for usado, e a sua senha atual continua valendo.": "もしあなたでなければ、このメッセージを無視してください。リンクが使われない限り何も変わらず、現在のパスワードはそのまま有効です。",
   "Se não foi você que se cadastrou, ignore esta mensagem — sem a confirmação a conta não é usada por ninguém.": "もしあなたが登録したのではないなら、このメッセージを無視してください — 確認がなければそのアカウントは誰にも使われません。",
-  "{n} país": "{n}か国"
+  "{n} país": "{n}か国",
+  "Escreva um pouco mais: uma mensagem precisa de pelo menos {n} caracteres.": "もう少し書いてください。メッセージには少なくとも{n}文字必要です。",
+  "mínimo de {n} caracteres": "{n}文字以上"
 }

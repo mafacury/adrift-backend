@@ -496,5 +496,7 @@
   "Senha incorreta.": "Mot de passe incorrect.",
   "Se não foi você, ignore esta mensagem. Nada muda enquanto o link não for usado, e a sua senha atual continua valendo.": "Si ce n'était pas vous, ignorez ce message. Rien ne change tant que le lien n'est pas utilisé, et votre mot de passe actuel reste valable.",
   "Se não foi você que se cadastrou, ignore esta mensagem — sem a confirmação a conta não é usada por ninguém.": "Si vous ne vous êtes pas inscrit, ignorez ce message — sans confirmation le compte n'est utilisé par personne.",
-  "{n} país": "{n} pays"
+  "{n} país": "{n} pays",
+  "Escreva um pouco mais: uma mensagem precisa de pelo menos {n} caracteres.": "Écrivez un peu plus : un message doit faire au moins {n} caractères.",
+  "mínimo de {n} caracteres": "au moins {n} caractères"
 }

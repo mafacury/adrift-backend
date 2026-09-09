@@ -12,7 +12,7 @@ import { avisar } from '../services/notify.js';
 import { config } from '../config/index.js';
 import { traduzirMensagens } from '../services/translate.js';
 import { premiarIndicacao } from '../services/indicacao.js';
-import { idiomaDoUsuario } from '../services/i18n.js';
+import { idiomaDoUsuario, tr } from '../services/i18n.js';
 
 interface CreateBoatBody {
   content: string;
@@ -26,6 +26,32 @@ interface HopBody {
 
 export async function boatRoutes(app: FastifyInstance) {
   // ── POST /boats ────────────────────────────────────────────────────────────
+  /**
+   * O tamanho da mensagem, contado como gente conta.
+   *
+   * `.length` do JavaScript conta unidades UTF-16: um emoji vale 2, e uma
+   * letra acentuada pode valer 2. Espalhar `[...texto]` conta CARACTERES de
+   * verdade, que é o que a pessoa vê e o que a mensagem de erro promete.
+   *
+   * O `minLength` do schema não serve para isto: conta as mesmas unidades
+   * UTF-16 e não sabe tirar espaço em branco — " a " passaria por três.
+   */
+  const tamanho = (texto: string) => [...texto].length;
+
+  /** A recusa, na língua de quem escreveu. */
+  async function curtaDemais(userId: string, reply: FastifyReply) {
+    const lang = await idiomaDoUsuario(userId);
+    return reply.code(400).send({
+      error: 'mensagem_curta',
+      message: tr(
+        lang,
+        'Escreva um pouco mais: uma mensagem precisa de pelo menos {n} caracteres.',
+        { n: config.antispam.minMensagem },
+      ),
+      minLength: config.antispam.minMensagem,
+    });
+  }
+
   app.post<{ Body: CreateBoatBody }>(
     '/boats',
     { schema: { body: { type: 'object', required: ['content'], properties: {
@@ -37,6 +63,11 @@ export async function boatRoutes(app: FastifyInstance) {
       if (!userId) return reply.code(401).send({ error: 'unauthorized' });
 
       const { content, giftId } = req.body;
+
+      // O que se guarda é o texto TRIMADO, não o que chegou: espaço em volta
+      // não é mensagem, e era ele que fazia " a " valer três caracteres.
+      const texto = (content ?? '').trim();
+      if (tamanho(texto) < config.antispam.minMensagem) return curtaDemais(userId, reply);
 
       // ── Freio de lançamento ────────────────────────────────────────────────
       // Não existia teto nenhum: uma conta lançava barcos até cansar, e uma
@@ -107,13 +138,13 @@ export async function boatRoutes(app: FastifyInstance) {
         const msgResult = await c.query(
           `INSERT INTO boat_messages (boat_id, user_id, content, country_code, gift_id, lang)
            VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-          [novoBarco, userId, content, countryCode, gift, idiomaDeQuemEscreve],
+          [novoBarco, userId, texto, countryCode, gift, idiomaDeQuemEscreve],
         );
         return { boatId: novoBarco, messageId: msgResult.rows[0].id as string };
       });
 
       // Moderação roda em background — resposta não espera
-      void processModeration({ boatId, messageId, content, userId, countryCode });
+      void processModeration({ boatId, messageId, content: texto, userId, countryCode });
 
       // Se esta pessoa veio pelo convite de alguém, é AQUI que quem a trouxe
       // recebe o prêmio — no primeiro barco, não no cadastro. Cadastro é
@@ -146,8 +177,18 @@ export async function boatRoutes(app: FastifyInstance) {
       const ip = req.ip;
       const countryCode = await countryFromIp(ip);
 
+      // Aqui escrever é OPCIONAL — deixar o barco passar sem responder é um
+      // caminho legítimo do produto. A regra, então, é: ou nada, ou uma
+      // mensagem de verdade. O `texto` também fecha um caso silencioso: só
+      // espaços era "conteúdo" para o `if` mais abaixo, e nascia uma mensagem
+      // em branco dentro do barco.
+      const texto = (content ?? '').trim();
+      if (texto && tamanho(texto) < config.antispam.minMensagem) {
+        return curtaDemais(userId, reply);
+      }
+
       // presente só é anexado a uma mensagem — e só se o usuário o tiver
-      const gift = content && giftId && (await userOwnsGift(userId, giftId)) ? giftId : null;
+      const gift = texto && giftId && (await userOwnsGift(userId, giftId)) ? giftId : null;
       if (gift) await consumeGift(userId, gift);
 
       // Verify the boat exists and is active, and this user has a pending queue entry
@@ -165,7 +206,7 @@ export async function boatRoutes(app: FastifyInstance) {
       // feita por `pool` lá dentro iria por OUTRA conexão — não enxergaria o
       // que a transação ainda não confirmou, e no pior caso ficaria esperando
       // uma trava que a própria transação segura. Ler antes resolve os dois.
-      const idiomaDeQuemEscreve = content ? await idiomaDoUsuario(userId) : null;
+      const idiomaDeQuemEscreve = texto ? await idiomaDoUsuario(userId) : null;
 
       // Transação de verdade — ver `emTransacao` em db/pool.ts. Aqui é a
       // resposta de alguém a um barco: a fila muda de estado, a mensagem
@@ -180,11 +221,11 @@ export async function boatRoutes(app: FastifyInstance) {
           [boatId, userId],
         );
 
-        if (content) {
+        if (texto) {
           const msgResult = await c.query(
             `INSERT INTO boat_messages (boat_id, user_id, content, country_code, gift_id, lang)
              VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-            [boatId, userId, content, countryCode, gift, idiomaDeQuemEscreve],
+            [boatId, userId, texto, countryCode, gift, idiomaDeQuemEscreve],
           );
           messageId = msgResult.rows[0].id;
           // conteúdo novo = assunto vivo: zera o contador de "deixaram passar"
@@ -243,9 +284,9 @@ export async function boatRoutes(app: FastifyInstance) {
         }
       }
 
-      if (content && messageId) {
+      if (texto && messageId) {
         // Nova mensagem — modera antes de rotear (em background)
-        void processModeration({ boatId, messageId, content, userId, countryCode });
+        void processModeration({ boatId, messageId, content: texto, userId, countryCode });
       } else {
         // Sem mensagem nova — rotear direto (em background)
         void processRouting({ boatId, fromUserId: userId });

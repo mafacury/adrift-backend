@@ -86,6 +86,27 @@ export const config = {
     maxActiveBoatsPerUser: int('MAX_ACTIVE_BOATS_PER_USER', 10),
     launchCooldownSec: int('LAUNCH_COOLDOWN_SEC', 120),
 
+    /**
+     * Piso de tamanho da mensagem, em caracteres, depois de tirar os espaços.
+     *
+     * Não existia: o schema pedia `minLength: 1`, e o app só barrava campo
+     * vazio. O primeiro usuário de verdade do Adrift, em 08/09/2026, lançou um
+     * barco com UM caractere — que é exatamente o que as regras permitiam.
+     * Barco é uma coisa que atravessa o mundo e chega na tela de um estranho;
+     * chegar com "a" dentro gasta a viagem e a paciência de quem recebe.
+     *
+     * QUATRO, e não quinze, por causa das outras línguas: o app fala japonês,
+     * árabe e híndi, e uma frase inteira em japonês cabe em quatro ou cinco
+     * caracteres. Piso alto em caractere é piso alto só para quem escreve em
+     * alfabeto latino.
+     *
+     * Vale para o lançamento E para a resposta. Deixar o barco passar SEM
+     * escrever continua valendo — o que não vale é escrever quase nada.
+     *
+     * Dá para mudar sem publicar nada: variável MIN_MENSAGEM no Railway.
+     */
+    minMensagem: int('MIN_MENSAGEM', 4),
+
     // rejeições da nossa moderação, em janela de 24h
     autobanWarnAt: int('AUTOBAN_WARN_AT', 3),   // → 'warned': para de receber barcos
     autobanBanAt: int('AUTOBAN_BAN_AT', 5),     // → 'banned': fim, e os barcos saem do mar
