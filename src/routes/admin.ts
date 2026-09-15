@@ -48,6 +48,61 @@ export async function adminRoutes(app: FastifyInstance) {
     return reply.send(rows[0]);
   });
 
+  // ── GET /admin/pendencias ──────────────────────────────────────────────────
+  /**
+   * O que espera avaliação humana — a fonte do número no ícone do Perfil.
+   *
+   * Existe porque o painel sabia de tudo e não contava nada. Em 14/09/2026 a
+   * moderação recolheu por engano o barco de uma usuária nova, e só se
+   * descobriu cinco horas depois, à mão. Nenhuma tela tinha por que acender.
+   *
+   * Três contas, e cada uma tem algo a FAZER — esta é a régua do aviso no
+   * menu, decidida em 18/08: bolinha é para o que acontece menos de uma vez
+   * por semana E pede uma ação. Medido em 14/09, isto aconteceu 2 vezes em 87
+   * dias de app.
+   *
+   *   parados     — barco pausado esperando um veredito seu
+   *   denuncias   — alguém reportou uma mensagem
+   *   recolhidos  — o robô arquivou algo desde a última vez que você abriu a
+   *                 tela de Moderação. Não é fila de trabalho: é conferir se
+   *                 ele acertou, que é exatamente o que faltou naquele dia.
+   *
+   * Barco de vitrine fica de fora: ele é cenário, e nunca foi julgado.
+   */
+  app.get('/admin/pendencias', async (req, reply) => {
+    const adminId = (req as any).user?.id;
+    const { rows } = await pool.query(
+      `SELECT
+         (SELECT COUNT(*)::int FROM boats
+           WHERE status = 'paused' AND NOT vitrine)                    AS parados,
+         (SELECT COUNT(*)::int FROM reports)                           AS denuncias,
+         (SELECT COUNT(*)::int FROM boats b
+           WHERE b.archive_reason = 'moderado'
+             AND b.archived_at > COALESCE(
+                   (SELECT moderacao_vista_em FROM users WHERE id = $1),
+                   '-infinity'::timestamptz))                          AS recolhidos`,
+      [adminId],
+    );
+    const r = rows[0];
+    return reply.send({ ...r, total: r.parados + r.denuncias + r.recolhidos });
+  });
+
+  // ── POST /admin/moderacao/vista ────────────────────────────────────────────
+  /**
+   * "Já olhei até aqui" — chamado quando o admin ABRE a tela de Moderação.
+   *
+   * Mesmo desenho do `ack` das conquistas: quem apaga o aviso é o ato de
+   * olhar, não um botão de "marcar como lido". Botão desse tipo é trabalho
+   * inventado — se a pessoa está na tela, ela já viu.
+   */
+  app.post('/admin/moderacao/vista', async (req, reply) => {
+    const adminId = (req as any).user?.id;
+    await pool.query(
+      `UPDATE users SET moderacao_vista_em = NOW() WHERE id = $1`, [adminId],
+    );
+    return reply.send({ status: 'ok' });
+  });
+
   // ── GET /admin/users ───────────────────────────────────────────────────────
   app.get<{ Querystring: { page?: string; limit?: string; search?: string; status?: string; incluir_apagadas?: string } }>(
     '/admin/users',
