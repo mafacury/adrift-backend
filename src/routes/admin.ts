@@ -122,7 +122,25 @@ export async function adminRoutes(app: FastifyInstance) {
            u.id, u.email, u.country_code, u.reputation_score,
            u.ban_status, u.role, u.created_at, u.last_active_at,
            u.email_verified, u.deleted_at,
-           (SELECT COUNT(*)::int FROM boats WHERE creator_user_id = u.id) AS boat_count
+           (SELECT COUNT(*)::int FROM boats WHERE creator_user_id = u.id) AS boat_count,
+           -- Participação: quantos barcos ATRACARAM no porto desta pessoa, e
+           -- em quantos ela mexeu. Na tela viram "12/4".
+           --
+           -- chegaram exclui o que ainda está navegando: uma linha da fila
+           -- nasce no instante da partida e só atraca em arrives_at, horas
+           -- depois. Contá-la antes disso seria cobrar da pessoa um barco que
+           -- ela não teve como ver, e faria toda conta nova parecer relapsa.
+           --
+           -- respondeu é o status 'delivered', gravado pela rota do hop quando
+           -- o barco segue adiante. Inclui quem mandou sem escrever nada: a
+           -- mensagem é opcional, e empurrar o barco já é participar. Fora
+           -- ficam 'skipped' (deixou passar de propósito) e 'expired' (ignorou
+           -- até o prazo) — as duas coisas que esta conta existe para expor.
+           (SELECT COUNT(*)::int FROM receiver_queue rq
+             WHERE rq.user_id = u.id
+               AND (rq.status <> 'pending' OR rq.arrives_at <= NOW()))      AS chegaram,
+           (SELECT COUNT(*)::int FROM receiver_queue rq
+             WHERE rq.user_id = u.id AND rq.status = 'delivered')           AS respondeu
          FROM users u
          WHERE ($1::text IS NULL OR u.email ILIKE '%' || $1 || '%')
            AND ($2::text IS NULL OR u.ban_status = $2)
