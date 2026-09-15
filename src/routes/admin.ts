@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { pool } from '../db/pool.js';
+import { pool, emTransacao } from '../db/pool.js';
 import { processRouting } from '../services/process.js';
 import { avisarBanimento } from '../services/enforcement.js';
 import { limparCacheDeAjustes } from '../services/ajustes.js';
@@ -246,6 +246,108 @@ export async function adminRoutes(app: FastifyInstance) {
     async (req, reply) => {
       await pool.query('DELETE FROM users WHERE id = $1', [req.params.id]);
       return reply.send({ status: 'ok' });
+    },
+  );
+
+  // ── GET /admin/moderacao/recolhidos ────────────────────────────────────────
+  /**
+   * O que o robô recolheu, e por quê — a tela para onde o aviso aponta.
+   *
+   * Sem esta lista o número do menu seria cruel: diria "há 3 coisas para
+   * avaliar" e jogaria a pessoa numa lista de TODOS os barcos, ordenada por
+   * data, onde os três estariam escondidos no meio. Aviso que não leva a lugar
+   * nenhum é pior que aviso nenhum.
+   *
+   * O campo que importa aqui é o `motivo`: é a frase que a IA escreveu ao
+   * recusar. Foi lendo uma dessas — "exact duplicate of the previous message",
+   * num barco que só tinha uma mensagem — que se descobriu, em 14/09/2026, que
+   * a moderação estava vendo a própria mensagem no histórico e recusando gente
+   * inocente. Sem o motivo à vista, aquilo teria continuado.
+   *
+   * `novo` marca o que chegou depois da última visita: é o que o número contou.
+   * Os antigos continuam na lista, apagados, porque "o que o robô andou
+   * fazendo" é uma pergunta que não começa na sua última visita.
+   */
+  app.get<{ Querystring: { limit?: string } }>(
+    '/admin/moderacao/recolhidos',
+    async (req, reply) => {
+      const adminId = (req as any).user?.id;
+      const limit = Math.min(50, parseInt(req.query.limit ?? '20', 10));
+
+      const { rows } = await pool.query(
+        `SELECT
+           b.id, b.created_at, b.archived_at,
+           u.email AS creator_email, u.country_code,
+           (u.oauth_provider = 'bot') AS e_bot,
+           (SELECT content FROM boat_messages WHERE boat_id = b.id
+             ORDER BY created_at ASC LIMIT 1)                     AS mensagem,
+           ml.detail AS motivo,
+           ml.layer  AS camada,
+           (b.archived_at > COALESCE(
+              (SELECT moderacao_vista_em FROM users WHERE id = $1),
+              '-infinity'::timestamptz))                          AS novo
+         FROM boats b
+         JOIN users u ON u.id = b.creator_user_id
+         LEFT JOIN LATERAL (
+           SELECT detail, layer FROM moderation_log
+            WHERE boat_id = b.id AND verdict = 'rejected'
+            ORDER BY created_at DESC LIMIT 1
+         ) ml ON TRUE
+         WHERE b.archive_reason = 'moderado'
+         ORDER BY b.archived_at DESC
+         LIMIT $2`,
+        [adminId, limit],
+      );
+      return reply.send({ recolhidos: rows });
+    },
+  );
+
+  // ── POST /admin/moderacao/devolver/:id ─────────────────────────────────────
+  /**
+   * "O robô errou" — devolve ao mar um barco recolhido injustamente.
+   *
+   * O botão "Ativar" da lista de barcos não serve aqui, e é uma armadilha:
+   * ele muda o status e para por aí. O barco volta a existir e fica boiando
+   * para sempre, porque quem o empurra adiante é o roteamento, e o roteamento
+   * não roda sozinho para barco antigo — a varredura de resgate só olha barcos
+   * SEM veredito, e este tem um.
+   *
+   * Então são três atos, e é preciso os três: apagar o julgamento errado,
+   * desarquivar, e mandar navegar. Foi exatamente isto, na mão e por consulta
+   * direta ao banco, que devolveu ao mar o barco da usuária nova em
+   * 14/09/2026. Não é trabalho para se repetir à mão.
+   *
+   * O roteamento fica FORA da transação, depois do commit: ele conversa com
+   * outras tabelas e pode demorar, e nada abaixo do commit pode desfazer o que
+   * já foi confirmado.
+   */
+  app.post<{ Params: { id: string } }>(
+    '/admin/moderacao/devolver/:id',
+    async (req, reply) => {
+      const { id } = req.params;
+
+      const dono = await emTransacao(async (c) => {
+        const { rows } = await c.query(
+          `UPDATE boats
+              SET status = 'active', archived_at = NULL, archive_reason = NULL
+            WHERE id = $1 AND archive_reason = 'moderado'
+            RETURNING creator_user_id`,
+          [id],
+        );
+        if (!rows.length) return null;
+        await c.query(`DELETE FROM moderation_log WHERE boat_id = $1`, [id]);
+        return rows[0].creator_user_id as string;
+      });
+
+      if (!dono) {
+        return reply.code(404).send({
+          error: 'nao_encontrado',
+          message: 'Este barco não está recolhido pela moderação.',
+        });
+      }
+
+      void processRouting({ boatId: id, fromUserId: dono });
+      return reply.send({ status: 'ok', message: 'Barco devolvido ao mar.' });
     },
   );
 
