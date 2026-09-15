@@ -49,6 +49,23 @@ const REVISIT_DAYS     = 21;
 const REVISIT_NEW_MSGS = 15;
 
 /**
+ * Porto adormecido: quem deixou este tanto de barcos expirar DEPOIS da última
+ * vez que abriu o app sai da lista dos humanos.
+ *
+ * Em 15/09/2026 um usuário novo lançou três barcos de madrugada e todos foram
+ * para bots — com humanos no app. Três contas que não abriam o app havia dias
+ * ocupavam a fila inteira (2 de 2) com barcos que atracavam, esperavam 12 h e
+ * expiravam sem ninguém ler. "Visto nos últimos 7 dias" deixava essas contas
+ * elegíveis, e cada barco mandado a elas atrasava a viagem um dia para nada.
+ *
+ * Isto esquece sozinho (ver o bloco "Esquecimento" abaixo): a conta contada é
+ * a de barcos expirados depois de `last_active_at`, então basta a pessoa abrir
+ * o app para voltar a receber. Três, e não um, porque um barco perdido de
+ * madrugada é fuso horário, não abandono.
+ */
+const ADORMECIDO_EXPIRADOS = 3;
+
+/**
  * Esquecimento: por que as exclusões têm prazo.
  *
  * Três regras tiram um barco da lista de alguém: já recebeu (revisita), deixou
@@ -148,6 +165,12 @@ export async function pickNextReceiver(boatId: string): Promise<Receiver | null>
        AND u.oauth_provider IS DISTINCT FROM 'bot'
        AND u.last_active_at >= NOW() - INTERVAL '7 days'
        AND u.reputation_score > 0
+       -- porto adormecido: barcos atracaram e expiraram desde a última visita
+       AND (SELECT COUNT(*) FROM receiver_queue rqa
+            WHERE rqa.user_id = u.id
+              AND rqa.status = 'expired'
+              AND rqa.arrives_at > u.last_active_at
+           ) < ${ADORMECIDO_EXPIRADOS}
        -- não é o criador
        AND u.id != (SELECT creator_user_id FROM boats WHERE id = $1)
        -- nunca viu este barco — ou viu há muito tempo e ele mudou bastante
@@ -195,6 +218,9 @@ export async function pickNextReceiver(boatId: string): Promise<Receiver | null>
             WHERE rqd.user_id = u.id
               AND rqd.arrives_at > NOW() - INTERVAL '24 hours') < ${ajustes.barcosPorDia}
      ORDER BY
+       -- quem abriu o app no último dia vem primeiro: é quem vai ler o barco
+       -- hoje. Dentro de cada grupo, o anti-seca de sempre.
+       (u.last_active_at >= NOW() - INTERVAL '24 hours') DESC,
        (SELECT COALESCE(MAX(arrives_at), TIMESTAMPTZ 'epoch')
         FROM receiver_queue WHERE user_id = u.id) ASC,
        RANDOM()
