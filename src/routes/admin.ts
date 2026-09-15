@@ -3,6 +3,7 @@ import { pool, emTransacao } from '../db/pool.js';
 import { processRouting } from '../services/process.js';
 import { avisarBanimento } from '../services/enforcement.js';
 import { limparCacheDeAjustes } from '../services/ajustes.js';
+import { STAGE_CASE_SQL } from '../services/progress.js';
 
 // Middleware shared by all admin routes
 async function requireAdmin(req: FastifyRequest, reply: FastifyReply) {
@@ -259,10 +260,68 @@ export async function adminRoutes(app: FastifyInstance) {
   );
 
   // ── DELETE /admin/users/:id ────────────────────────────────────────────────
+  /**
+   * Excluir em definitivo — o ✕ do painel, para limpar contas de teste.
+   *
+   * Não é a exclusão que a PESSOA pede (`excluirConta`, que anonimiza e deixa
+   * as mensagens nos barcos, como o Termo promete). Aqui a linha sai, e a
+   * cascata leva junto tudo o que pendura nela: os barcos da conta, as
+   * mensagens que ela deixou em barcos alheios, a fila, os presentes.
+   *
+   * Esta rota existia desde o começo sem trava nenhuma, com a dica do painel
+   * dizendo "anonimiza a conta" — dizia uma coisa e fazia outra. As travas:
+   *   - a si mesmo: o admin se apagaria no meio da sessão;
+   *   - admin: ninguém tira outro admin por um toque;
+   *   - bot: é porto do oceano de reserva; some e `ensureBots` recria no
+   *     próximo arranque com outro id, deixando fila e pulos órfãos;
+   *   - vitrine: é o que o visitante sem conta vê.
+   *
+   * E o que a cascata não sabe: o barco de OUTRA pessoa em que esta conta
+   * escreveu perde mensagens, e o estágio dele é contagem de mensagens. Sem
+   * recalcular, um barco ficaria Veleiro com 9 mensagens.
+   */
   app.delete<{ Params: { id: string } }>(
     '/admin/users/:id',
     async (req, reply) => {
-      await pool.query('DELETE FROM users WHERE id = $1', [req.params.id]);
+      const { id } = req.params;
+      const eu = (req as any).user.id as string;
+
+      const { rows: alvo } = await pool.query(
+        `SELECT u.email, u.role, u.oauth_provider,
+                EXISTS (SELECT 1 FROM boats b WHERE b.creator_user_id = u.id AND b.vitrine) AS vitrine
+           FROM users u WHERE u.id = $1`,
+        [id],
+      );
+      if (!alvo.length) return reply.code(404).send({ error: 'usuário não encontrado' });
+
+      const recusa = (motivo: string) =>
+        reply.code(409).send({ error: 'nao_pode_excluir', message: motivo });
+      if (id === eu)                          return recusa('Você não pode excluir a própria conta por aqui.');
+      if (alvo[0].role === 'admin')           return recusa('Conta de administrador não é excluída pelo painel.');
+      if (alvo[0].oauth_provider === 'bot')   return recusa('Bots não são excluídos por aqui.');
+      if (alvo[0].vitrine)                    return recusa('Esta é a conta da vitrine — sem ela, o visitante não vê barco nenhum.');
+
+      await emTransacao(async (c) => {
+        // barcos de outras pessoas por onde esta conta passou escrevendo
+        const { rows: alheios } = await c.query(
+          `SELECT DISTINCT m.boat_id
+             FROM boat_messages m
+             JOIN boats b ON b.id = m.boat_id
+            WHERE m.user_id = $1 AND b.creator_user_id <> $1`,
+          [id],
+        );
+
+        await c.query('DELETE FROM users WHERE id = $1', [id]);
+
+        for (const { boat_id } of alheios) {
+          await c.query(
+            `UPDATE boats SET stage = ${STAGE_CASE_SQL} WHERE id = $1`,
+            [boat_id],
+          );
+        }
+      });
+
+      console.log(`[admin] ${eu} excluiu em definitivo ${alvo[0].email} (${id})`);
       return reply.send({ status: 'ok' });
     },
   );
