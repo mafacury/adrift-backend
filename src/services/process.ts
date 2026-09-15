@@ -30,13 +30,23 @@ export interface ModerationData {
 export async function processModeration(data: ModerationData): Promise<void> {
   const { boatId, messageId, content, userId } = data;
   try {
-    // Histórico do barco para contexto da IA
+    // Histórico do barco para contexto da IA — SEM a mensagem que está sendo
+    // julgada. Ela já está gravada quando esta função roda (nasce junto com o
+    // barco, na mesma transação), então sem o `<>` ela aparecia duas vezes na
+    // conversa com a IA: uma no histórico e outra em "New message to
+    // evaluate". A IA lia isso como o que parecia ser — o mesmo texto repetido
+    // — e respondia "exact duplicate of the previous message": veredito
+    // `rejected`, barco arquivado um segundo depois de zarpar.
+    //
+    // Doía mais no primeiro barco de cada pessoa, que é justamente onde o
+    // histórico é só a própria mensagem e a duplicata fica gritante. Foi assim
+    // que o barco b5767dd0 afundou em 15/09/2026, com uma mensagem inofensiva.
     const { rows: historyRows } = await pool.query(
       `SELECT bm.country_code, bm.content
        FROM boat_messages bm
-       WHERE bm.boat_id = $1
+       WHERE bm.boat_id = $1 AND bm.id <> $2
        ORDER BY bm.created_at ASC`,
-      [boatId],
+      [boatId, messageId],
     );
 
     // Usuário novo → limiar mais rígido
