@@ -261,17 +261,37 @@ function limparChave(v: string): string {
   return v.trim().replace(/^["']|["']$/g, '').trim();
 }
 
+/**
+ * Cópia oculta de todo e-mail, para o dono acompanhar o que sai.
+ *
+ * Pedido de 16/09/2026, enquanto o app tem pouca gente e vale ver cada
+ * mensagem. Oculta (BCC) para a pessoa não ver o endereço do dono.
+ *
+ * A cópia leva os mesmos links do original — confirmar e-mail, trocar senha.
+ * Tocar num deles age sobre a conta da pessoa, não sobre a do dono.
+ *
+ * Desliga sem deploy: `EMAIL_COPIA=nao` no Railway.
+ */
+function copiaOculta(para: string): string | undefined {
+  const v = (process.env.EMAIL_COPIA ?? 'mafacury@gmail.com').trim();
+  if (!v || /^(nao|não|off|false)$/i.test(v)) return undefined;
+  // o e-mail já é para o dono: cópia seria o mesmo e-mail duas vezes
+  if (v.toLowerCase() === para.trim().toLowerCase()) return undefined;
+  return v;
+}
+
 export async function enviarEmail(
   para: string, assunto: string, html: string, texto: string,
 ): Promise<boolean> {
   const chave = process.env.RESEND_API_KEY ? limparChave(process.env.RESEND_API_KEY) : undefined;
   const de = process.env.MAIL_FROM ?? 'Adrift <onboarding@resend.dev>';
+  const copia = copiaOculta(para);
 
   // ── Saída 1: SMTP do próprio domínio ──────────────────────────────────────
   if (smtpLigado()) {
     try {
       const info = await (await pegarTransporte()).sendMail({
-        from: de, to: para, subject: assunto, html, text: texto,
+        from: de, to: para, bcc: copia, subject: assunto, html, text: texto,
       });
       console.log(`[mail] enviado por SMTP para ${para} (${info.messageId})`);
       return true;
@@ -289,7 +309,7 @@ export async function enviarEmail(
     // no meio das outras linhas.
     console.log(
       '\n┌─ E-MAIL NÃO ENVIADO (falta SMTP_HOST ou RESEND_API_KEY) ────\n' +
-      `│ para:    ${para}\n` +
+      `│ para:    ${para}${copia ? ` (cópia oculta: ${copia})` : ''}\n` +
       `│ assunto: ${assunto}\n` +
       '├─────────────────────────────────────────────────────────────\n' +
       texto.split('\n').map((l) => `│ ${l}`).join('\n') +
@@ -305,7 +325,10 @@ export async function enviarEmail(
         'Authorization': `Bearer ${chave}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ from: de, to: [para], subject: assunto, html, text: texto }),
+      body: JSON.stringify({
+        from: de, to: [para], ...(copia ? { bcc: [copia] } : {}),
+        subject: assunto, html, text: texto,
+      }),
     });
     if (!r.ok) {
       // o corpo do erro do Resend diz o motivo (domínio não verificado, etc.)
