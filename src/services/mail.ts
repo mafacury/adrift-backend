@@ -262,36 +262,83 @@ function limparChave(v: string): string {
 }
 
 /**
- * Cópia oculta de todo e-mail, para o dono acompanhar o que sai.
+ * Cópia de todo e-mail, para o dono acompanhar o que sai.
  *
  * Pedido de 16/09/2026, enquanto o app tem pouca gente e vale ver cada
- * mensagem. Oculta (BCC) para a pessoa não ver o endereço do dono.
+ * mensagem. A primeira versão foi cópia oculta (BCC), e o defeito dela é que
+ * cópia oculta é o MESMO e-mail: levava o link de trocar senha e o de
+ * confirmar cadastro de cada pessoa. Tocar num deles agia sobre a conta dela,
+ * e quem entrasse na caixa do dono entrava em todas as contas.
  *
- * A cópia leva os mesmos links do original — confirmar e-mail, trocar senha.
- * Tocar num deles age sobre a conta da pessoa, não sobre a do dono.
+ * Por isso a cópia é um segundo e-mail, com os links arrancados: o dono vê o
+ * texto, o assunto e para quem foi; os botões continuam desenhados, mas não
+ * levam a lugar nenhum. A pessoa não vê o endereço do dono em lugar nenhum.
  *
  * Desliga sem deploy: `EMAIL_COPIA=nao` no Railway.
  */
-function copiaOculta(para: string): string | undefined {
+function enderecoDaCopia(para: string): string | undefined {
   const v = (process.env.EMAIL_COPIA ?? 'mafacury@gmail.com').trim();
   if (!v || /^(nao|não|off|false)$/i.test(v)) return undefined;
-  // o e-mail já é para o dono: cópia seria o mesmo e-mail duas vezes
+  // o e-mail já é para o dono: a cópia seria o mesmo e-mail duas vezes
   if (v.toLowerCase() === para.trim().toLowerCase()) return undefined;
   return v;
+}
+
+const URL_SOLTA = /(?:https?:\/\/|mailto:)[^\s"'<>]+/gi;
+const SEM_LINK = '[link removido]';
+
+/** Tira os links, mas deixa as imagens: o logotipo continua aparecendo. */
+function semLinksHtml(html: string): string {
+  return html
+    .replace(/(<a\b[^>]*?)\s+href\s*=\s*("[^"]*"|'[^']*')/gi, '$1')
+    // endereço escrito no meio do texto, fora de atributo
+    .replace(/>([^<]*)</g, (_m, t: string) => `>${t.replace(URL_SOLTA, SEM_LINK)}<`);
+}
+
+async function mandarCopia(
+  copia: string, para: string, assunto: string, html: string, texto: string, entregue: boolean,
+): Promise<void> {
+  const situacao = entregue ? 'enviado' : 'FALHOU o envio';
+  const faixa =
+    `<div style="background:#FFF4D6;border:1px solid #E0B84C;padding:12px 16px;` +
+    `font-family:Arial,sans-serif;font-size:13px;line-height:19px;color:#5A4410">` +
+    `<strong>Cópia para acompanhamento</strong> — ${situacao} para ` +
+    `<strong>${para.replace(/[<>&"]/g, '')}</strong>. Os links foram removidos.</div>`;
+  const aviso = `[Cópia para acompanhamento — ${situacao} para ${para}. Links removidos.]\n\n`;
+
+  await entregar(
+    copia,
+    `[Cópia → ${para}] ${assunto}`,
+    faixa + semLinksHtml(html),
+    aviso + texto.replace(URL_SOLTA, SEM_LINK),
+  );
 }
 
 export async function enviarEmail(
   para: string, assunto: string, html: string, texto: string,
 ): Promise<boolean> {
+  const entregue = await entregar(para, assunto, html, texto);
+
+  const copia = enderecoDaCopia(para);
+  if (copia) {
+    // Sem await: a cópia não pode atrasar nem derrubar o envio de verdade.
+    void mandarCopia(copia, para, assunto, html, texto, entregue)
+      .catch((e) => console.error('[mail] cópia falhou:', e));
+  }
+  return entregue;
+}
+
+async function entregar(
+  para: string, assunto: string, html: string, texto: string,
+): Promise<boolean> {
   const chave = process.env.RESEND_API_KEY ? limparChave(process.env.RESEND_API_KEY) : undefined;
   const de = process.env.MAIL_FROM ?? 'Adrift <onboarding@resend.dev>';
-  const copia = copiaOculta(para);
 
   // ── Saída 1: SMTP do próprio domínio ──────────────────────────────────────
   if (smtpLigado()) {
     try {
       const info = await (await pegarTransporte()).sendMail({
-        from: de, to: para, bcc: copia, subject: assunto, html, text: texto,
+        from: de, to: para, subject: assunto, html, text: texto,
       });
       console.log(`[mail] enviado por SMTP para ${para} (${info.messageId})`);
       return true;
@@ -309,7 +356,7 @@ export async function enviarEmail(
     // no meio das outras linhas.
     console.log(
       '\n┌─ E-MAIL NÃO ENVIADO (falta SMTP_HOST ou RESEND_API_KEY) ────\n' +
-      `│ para:    ${para}${copia ? ` (cópia oculta: ${copia})` : ''}\n` +
+      `│ para:    ${para}\n` +
       `│ assunto: ${assunto}\n` +
       '├─────────────────────────────────────────────────────────────\n' +
       texto.split('\n').map((l) => `│ ${l}`).join('\n') +
@@ -326,8 +373,7 @@ export async function enviarEmail(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: de, to: [para], ...(copia ? { bcc: [copia] } : {}),
-        subject: assunto, html, text: texto,
+        from: de, to: [para], subject: assunto, html, text: texto,
       }),
     });
     if (!r.ok) {
