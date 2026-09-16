@@ -22,6 +22,25 @@ import { garantirVitrine } from './services/vitrine.js';
 
 const app = Fastify({ logger: true, trustProxy: true });
 
+/**
+ * JSON vazio é "sem corpo", não erro.
+ *
+ * O app manda `Content-Type: application/json` em todo pedido, até no DELETE
+ * que não leva nada, e o leitor padrão do Fastify recusa isso com 400 ("Body
+ * cannot be empty..."). Assim ficaram mudos, até 16/09/2026, o ✕ de Usuários
+ * e as exclusões da Moderação. O app já foi corrigido, mas a versão velha
+ * continua nos navegadores e nos APKs instalados — por isso o conserto que
+ * vale para todos mora aqui.
+ */
+app.removeContentTypeParser('application/json');
+// O leitor padrão continua fazendo o trabalho de verdade — ele barra
+// `__proto__` e `constructor` no JSON, que um JSON.parse puro deixaria passar.
+const leitorJson = app.getDefaultJsonParser('error', 'error');
+app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, corpo, pronto) => {
+  if (String(corpo).trim() === '') return pronto(null, undefined);
+  leitorJson(req, corpo as string, pronto);
+});
+
 await app.register(cors, { origin: true });
 await app.register(jwt, { secret: config.jwtSecret });
 
