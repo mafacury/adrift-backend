@@ -2,6 +2,7 @@ import { pool, emTransacao } from '../db/pool.js';
 import { config } from '../config/index.js';
 import { STAGE_CASE_SQL } from './progress.js';
 import { ajustesDoFluxo } from './ajustes.js';
+import { semBloqueioEntre } from './bloqueio.js';
 
 // ── Fluxo dos barcos ───────────────────────────────────────────────────────
 // Viagem com distância REAL: tempo = base + km/velocidade (±20% de "maré").
@@ -173,6 +174,12 @@ export async function pickNextReceiver(boatId: string): Promise<Receiver | null>
            ) < ${ADORMECIDO_EXPIRADOS}
        -- não é o criador
        AND u.id != (SELECT creator_user_id FROM boats WHERE id = $1)
+       -- e não há bloqueio entre esta pessoa e quem lançou o barco. É a
+       -- metade do bloqueio que o filtro de mensagem não cobre: esconder o
+       -- texto não bastaria, porque um barco é um encontro — ele chega, ocupa
+       -- a tela e pede resposta. Vale nos dois sentidos de uma vez: o barco de
+       -- quem bloqueou não vai para a bloqueada, nem o contrário.
+       AND ${semBloqueioEntre('u.id', '(SELECT creator_user_id FROM boats WHERE id = $1)')}
        -- nunca viu este barco — ou viu há muito tempo e ele mudou bastante
        AND NOT EXISTS (
          SELECT 1 FROM boat_hops h

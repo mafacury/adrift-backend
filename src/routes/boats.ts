@@ -13,6 +13,7 @@ import { config } from '../config/index.js';
 import { traduzirMensagens } from '../services/translate.js';
 import { premiarIndicacao } from '../services/indicacao.js';
 import { idiomaDoUsuario, tr } from '../services/i18n.js';
+import { semBloqueioEntre } from '../services/bloqueio.js';
 
 interface CreateBoatBody {
   content: string;
@@ -525,7 +526,12 @@ export async function boatRoutes(app: FastifyInstance) {
            bm.gift_id,
            bci.interaction_count
          FROM boat_hops h
-         LEFT JOIN boat_messages bm ON bm.id = h.message_id
+         -- No JOIN, não no WHERE: o porto continua existindo na história do
+         -- barco (e na numeração dos pinos do mapa), só que calado. Tirar a
+         -- LINHA faria a rota do barco encolher, e ela é o registro da viagem.
+         LEFT JOIN boat_messages bm
+                ON bm.id = h.message_id
+               AND ${semBloqueioEntre('$2', 'bm.user_id')}
          LEFT JOIN LATERAL (
            SELECT COUNT(*) AS interaction_count
            FROM boat_country_interactions
@@ -533,7 +539,7 @@ export async function boatRoutes(app: FastifyInstance) {
          ) bci ON TRUE
          WHERE h.boat_id = $1
          ORDER BY h.hopped_at ASC`,
-        [boatId],
+        [boatId, userId],
       );
 
       if (firstMsg.length) {

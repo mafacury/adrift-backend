@@ -12,6 +12,7 @@ import { codigoDeConvite, placarDeConvites } from '../services/indicacao.js';
 import bcrypt from 'bcryptjs';
 import { excluirConta } from '../services/exclusao.js';
 import { idiomaSuportado, tr } from '../services/i18n.js';
+import { semBloqueioEntre } from '../services/bloqueio.js';
 
 let cacheTextos: { at: number; mapa: Record<string, string> } | null = null;
 
@@ -447,7 +448,12 @@ export async function userRoutes(app: FastifyInstance) {
            ) AS messages
          FROM receiver_queue rq
          JOIN boats b ON b.id = rq.boat_id
-         LEFT JOIN boat_messages bm ON bm.boat_id = rq.boat_id
+         -- o bloqueio entra NO JOIN, não no WHERE: aqui ele precisa tirar a
+         -- mensagem e deixar o barco. No WHERE, um barco cujas mensagens
+         -- fossem todas de gente bloqueada sumiria inteiro da fila.
+         LEFT JOIN boat_messages bm
+                ON bm.boat_id = rq.boat_id
+               AND ${semBloqueioEntre('$1', 'bm.user_id')}
          WHERE rq.user_id = $1
            AND rq.status = 'pending'
            AND rq.arrives_at <= NOW()
@@ -772,6 +778,8 @@ export async function userRoutes(app: FastifyInstance) {
             AND bm.gift_id IS NOT NULL
             AND bm.user_id <> $1
             AND bm.created_at > u.gifts_seen_at
+            -- presente de quem foi bloqueado não vira festa
+            AND ${semBloqueioEntre('$1', 'bm.user_id')}
           ORDER BY bm.created_at ASC
           LIMIT 12`,
         [userId],
@@ -1000,6 +1008,92 @@ export async function userRoutes(app: FastifyInstance) {
       const r = await agradecer(userId, messageId, phrase);
       if (r === 'nao_encontrado') return reply.code(404).send({ error: 'presente não encontrado' });
       return reply.send({ status: r });
+    },
+  );
+
+  // ── POST /users/me/blocks ──────────────────────────────────────────────────
+  //
+  // Bloquear a pessoa que escreveu uma mensagem.
+  //
+  // O corpo traz o id da MENSAGEM, nunca o do usuário — e é essa a peça que faz
+  // o bloqueio caber num app anônimo. Quem bloqueia não sabe (nem descobre) de
+  // quem se trata: o servidor resolve o autor, grava o par e devolve "ok". A
+  // pessoa bloqueada também nunca fica sabendo.
+  //
+  // A resposta é a MESMA em todo caso que não seja erro de verdade: mensagem
+  // inexistente, própria, ou já bloqueada devolvem `ok`. Respostas diferentes
+  // seriam um oráculo — dava para descobrir se duas mensagens são da mesma
+  // pessoa mandando bloquear as duas e comparando o que volta.
+  app.post<{ Body: { messageId?: string } }>(
+    '/users/me/blocks',
+    { schema: { body: { type: 'object', required: ['messageId'], properties: {
+      messageId: { type: 'string' },
+    } } } },
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+
+      const { messageId } = req.body;
+
+      const { rows } = await pool.query(
+        `SELECT user_id, country_code FROM boat_messages WHERE id = $1`,
+        [messageId],
+      );
+      const autor = rows[0]?.user_id as string | undefined;
+
+      // Nada a fazer, e nada a contar: some no mesmo "ok" do sucesso.
+      if (!autor || autor === userId) return reply.send({ status: 'ok' });
+
+      await pool.query(
+        `INSERT INTO user_blocks (blocker_user_id, blocked_user_id, country_code)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (blocker_user_id, blocked_user_id) DO NOTHING`,
+        [userId, autor, rows[0].country_code ?? null],
+      );
+
+      return reply.send({ status: 'ok' });
+    },
+  );
+
+  // ── GET /users/me/blocks ───────────────────────────────────────────────────
+  //
+  // A lista, para o Perfil. Sai o MENOS possível: a data e o país de onde veio
+  // a mensagem — que a pessoa já tinha visto quando bloqueou. O id do usuário
+  // bloqueado nunca sai daqui; o `id` da linha é o que serve para desfazer.
+  app.get(
+    '/users/me/blocks',
+    {},
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+
+      const { rows } = await pool.query(
+        `SELECT id, country_code, created_at
+           FROM user_blocks
+          WHERE blocker_user_id = $1
+          ORDER BY created_at DESC`,
+        [userId],
+      );
+      return reply.send({ blocks: rows });
+    },
+  );
+
+  // ── DELETE /users/me/blocks/:id ────────────────────────────────────────────
+  //
+  // Desfazer. O `WHERE blocker_user_id` é o que impede desfazer bloqueio dos
+  // outros com um id adivinhado.
+  app.delete<{ Params: { id: string } }>(
+    '/users/me/blocks/:id',
+    {},
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+
+      await pool.query(
+        `DELETE FROM user_blocks WHERE id = $1 AND blocker_user_id = $2`,
+        [req.params.id, userId],
+      );
+      return reply.send({ status: 'ok' });
     },
   );
 
