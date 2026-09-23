@@ -516,6 +516,11 @@ export async function boatRoutes(app: FastifyInstance) {
            h.id,
            h.country_code,
            h.hopped_at,
+           -- O id da MENSAGEM, que não é o do pulo. Sem ele o Mapa mostrava o
+           -- que estranhos escreveram no barco da pessoa sem nenhum caminho
+           -- para denunciar: POST /boats/:id/report pede o messageId, e a tela
+           -- não tinha como dizer QUAL mensagem.
+           bm.id AS message_id,
            bm.content AS message,
            bm.gift_id,
            bci.interaction_count
@@ -536,6 +541,9 @@ export async function boatRoutes(app: FastifyInstance) {
           id: `launch-${boatId}`,
           country_code: firstMsg[0].country_code,
           hopped_at: boat.created_at,
+          // sem `message_id` de propósito: este porto é a mensagem do PRÓPRIO
+          // dono do barco, e ninguém denuncia o que escreveu
+          message_id: null,
           message: firstMsg[0].content,
           gift_id: firstMsg[0].gift_id,
           interaction_count: 0,
