@@ -86,6 +86,10 @@ function desescapar(s) {
 function ehTexto(t, linha) {
   const s = t.trim();
   if (s.length < 5) return false;
+  // Crase com `${}` dentro é montada em execução: a chave gravada aqui nunca
+  // seria encontrada por t(), e a linha só ocuparia lugar na planilha de quem
+  // traduz. (Três dessas entraram em 23/09/2026, vindas de mail.ts.)
+  if (s.includes('${')) return false;
   if (IGNORAR.some((p) => s.startsWith(p))) return false;
   if (/^[A-Za-z0-9_\-.:/ ]+$/.test(s)) return false;
   if (LOG.test(linha)) return false;
@@ -114,29 +118,171 @@ function* arquivos(dir) {
  * Casa só o que está entre `>` e `<` sem chaves nem tags no meio: com `{}` o
  * conteúdo é expressão, e expressão já passa pelo caminho dos literais.
  */
-const TEXTO_JSX = /> *([^<>{}\n][^<>{}\n]{2,199}?) *</g;
+// O mínimo é DOIS caracteres, não quatro: `<Text>mn</Text>` — a unidade de
+// milha náutica no horizonte — é um rótulo traduzido de duas letras, e ficava
+// de fora. No caminho normal isto não muda nada (`ehTexto` continua exigindo
+// cinco); muda no caminho de "isto ainda está escrito?", que é onde importa.
+const TEXTO_JSX = /> *([^<>{}\n][^<>{}\n]{1,199}?) *</g;
+
+/**
+ * ── O caminho que NÃO adivinha ───────────────────────────────────────────────
+ *
+ * `ehTexto` decide pelo português: tem acento, ou tem duas palavrinhas da
+ * lista. É um chute, e chute erra dos dois lados. Errou feio para menos: em
+ * 23/09/2026, de 617 linhas do CSV ele reconhecia 316 — "Entrar", "Criar
+ * conta", "bloquear", "AO VIVO" não têm acento nem "de/para/que", então sumiam.
+ * E `compilar` PULA linha órfã: uma rodada de `extrair` teria apagado 283
+ * traduções vivas dos locales, em sete idiomas, sem erro nenhum aparecer.
+ *
+ * O conserto é parar de adivinhar. Quando alguém escreve `t('...')` já disse
+ * que aquilo é texto de tela — a informação estava ali o tempo todo, do lado.
+ * Estas duas expressões leem a chamada em vez do idioma:
+ *
+ *   t('texto')            no app        — o texto é o 1º argumento
+ *   tr(idioma, 'texto')   no servidor   — é o 2º
+ *
+ * Rodam sobre o arquivo INTEIRO, e não linha a linha, porque chamada quebrada
+ * em várias linhas é comum e era invisível para a varredura de antes.
+ *
+ * O caminho antigo continua vivo ao lado deste: catálogos como
+ * `constants/agradecimentos.ts` guardam a frase numa constante e só depois a
+ * passam para `t(f.texto)` — ali não há literal dentro da chamada, e é o
+ * palpite do português que salva.
+ */
+const CHAMADA_T  = /\bt\(\s*(['"`])((?:\\.|(?!\1)[^\\])*?)\1/g;
+const CHAMADA_TR = /\btr\(\s*[^,'"`()]+?,\s*(['"`])((?:\\.|(?!\1)[^\\])*?)\1/g;
+
+/**
+ * O mesmo arquivo com todo comentário apagado — e só ele, para as linhas
+ * continuarem batendo.
+ *
+ * A varredura de antes pulava a linha que COMEÇA com `//` ou `*`. Lendo o
+ * arquivo inteiro de uma vez esse cuidado se perde, e um `t('exemplo')` dentro
+ * de um comentário explicativo viraria linha no CSV.
+ */
+function semComentarios(txt) {
+  return txt
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+    .split('\n')
+    .map((l) => (/^\s*(\/\/|\*)/.test(l) ? '' : l))
+    .join('\n');
+}
+
+/** Em que linha do arquivo cai este índice — só para o CSV dizer onde achou. */
+function linhaDoIndice(txt, idx) {
+  let n = 1;
+  for (let i = 0; i < idx && i < txt.length; i++) if (txt[i] === '\n') n++;
+  return n;
+}
+
+/**
+ * Texto que veio de dentro de uma chamada de tradução.
+ *
+ * Aqui não se pergunta se PARECE português: já foi marcado por quem escreveu.
+ * Sobra descartar o que não é chave utilizável — crase com `${}` dentro é
+ * montada em execução, e a chave gravada nunca seria encontrada.
+ */
+function ehTextoDeChamada(s) {
+  if (!s || s.includes('${')) return false;
+  if (NAO_E_DE_USUARIO.some((re) => re.test(s))) return false;
+  return true;
+}
+
+/**
+ * ── Por que existe uma segunda lista, a de "presentes" ───────────────────────
+ *
+ * Reconhecer texto de tela é um problema sem fim: `t('bloquear')` é fácil, mas
+ * `Baú` guardado num catálogo e passado adiante como `t(item.label)`, ou
+ * `<Text>Agradecer</Text>` solto no JSX, dependem de palpite — e palpite erra.
+ *
+ * Só que para NÃO ESTRAGAR nada a ferramenta não precisa acertar quem é texto
+ * de tela. Precisa apenas nunca declarar MORTO o que continua vivo. E para isso
+ * basta uma pergunta bem mais simples, que não exige palpite nenhum:
+ *
+ *     esta frase ainda aparece, escrita, em algum lugar do código?
+ *
+ * `presentes` é a resposta: TODO literal e TODO texto de JSX encontrados, sem
+ * filtro de espécie alguma. Uma linha do CSV só vira órfã se o texto dela não
+ * estiver nem em `achados` nem aqui. Órfã de verdade é a que ninguém escreve
+ * mais em lugar nenhum.
+ */
+/**
+ * Todo texto escrito no código, em qualquer arquivo, de qualquer tamanho.
+ *
+ * Duas diferenças deliberadas em relação à varredura normal, e as duas existem
+ * porque a pergunta aqui é outra — não é "isto é texto de tela?", é "isto ainda
+ * está escrito em algum lugar?":
+ *
+ *   • entra TAMBÉM o que a varredura pula de propósito (`terms.ts`, `i18n.ts`,
+ *     a pasta `admin`…). Pular serve para não ACRESCENTAR aquelas frases ao
+ *     CSV; não serve para declará-las mortas. As seções dos Termos estão
+ *     traduzidas nos sete idiomas e sumiriam todas.
+ *   • o tamanho mínimo cai de 5 para 1 caractere. "Baú", "Mapa", "Pier", "mn"
+ *     são rótulos do menu, traduzidos, e não chegam a cinco letras.
+ */
+const LITERAL_QUALQUER = /(['"`])([^'"`\n]{1,300})\1/g;
+
+function tudoQueEstaEscrito() {
+  const presentes = new Set();
+  const PULAR = ['node_modules', '.git', 'dist', '.expo', 'backups', 'locales', '_rollback'];
+  (function anda(dir) {
+    for (const nome of readdirSync(dir)) {
+      if (PULAR.includes(nome)) continue;
+      const p = join(dir, nome);
+      if (statSync(p).isDirectory()) { anda(p); continue; }
+      if (!/\.tsx?$/.test(nome)) continue;
+      const txt = semComentarios(readFileSync(p, 'utf8'));
+      for (const linha of txt.split('\n')) {
+        for (const m of linha.matchAll(LITERAL_QUALQUER)) presentes.add(desescapar(m[2].trim()));
+        if (p.endsWith('.tsx')) {
+          for (const m of linha.matchAll(TEXTO_JSX)) presentes.add(m[1].trim());
+        }
+      }
+    }
+  })(RAIZ);
+  return presentes;
+}
 
 function varrer() {
-  const achados = new Map();   // texto -> "arquivo:linha"
+  const achados = new Map();   // texto -> "arquivo:linha"  (o que eu SEI que é de tela)
+  const presentes = tudoQueEstaEscrito();
   for (const base of [join(RAIZ, 'mobile'), join(RAIZ, 'backend', 'src')]) {
     if (!existsSync(base)) continue;
     for (const p of arquivos(base)) {
       const rel = relative(RAIZ, p).replace(/\\/g, '/');
-      const linhas = readFileSync(p, 'utf8').split('\n');
+      const cru = readFileSync(p, 'utf8');
+
+      // 1) o caminho certo: o que está DENTRO de t(...) e tr(..., ...)
+      const limpo = semComentarios(cru);
+      for (const re of [CHAMADA_T, CHAMADA_TR]) {
+        re.lastIndex = 0;
+        for (const m of limpo.matchAll(re)) {
+          const bruto = m[2];
+          if (!ehTextoDeChamada(bruto)) continue;
+          const t = desescapar(bruto);
+          if (!achados.has(t)) achados.set(t, `${rel}:${linhaDoIndice(limpo, m.index)}`);
+        }
+      }
+
+      // 2) o caminho do palpite, para os catálogos que guardam a frase longe
+      //    da chamada
+      const linhas = cru.split('\n');
       linhas.forEach((linha, i) => {
         const s = linha.trim();
         if (s.startsWith('*') || s.startsWith('//') || s.startsWith('/*')) return;
         for (const m of linha.matchAll(LITERAL)) {
           const bruto = m[2].trim();
-          if (!ehTexto(bruto, linha)) continue;
           // A chave tem de ser o texto COMO ELE EXISTE EM EXECUÇÃO.
           const t = desescapar(bruto);
+          presentes.add(t);
+          if (!ehTexto(bruto, linha)) continue;
           if (!achados.has(t)) achados.set(t, `${rel}:${i + 1}`);
         }
         // Texto solto dentro de JSX, que não passa pelo caminho acima.
         if (p.endsWith('.tsx')) {
           for (const m of linha.matchAll(TEXTO_JSX)) {
             const bruto = m[1].trim();
+            presentes.add(bruto);
             if (!ehTexto(bruto, linha)) continue;
             if (!achados.has(bruto)) achados.set(bruto, `${rel}:${i + 1}`);
           }
@@ -144,7 +290,9 @@ function varrer() {
       });
     }
   }
-  return achados;
+  // o que entrou em `achados` obviamente também está presente
+  for (const t of achados.keys()) presentes.add(t);
+  return { achados, presentes };
 }
 
 // ── CSV mínimo, sem dependência ─────────────────────────────────────────────
@@ -196,7 +344,7 @@ function csvLer(txt) {
 }
 
 function extrair() {
-  const achados = varrer();
+  const { achados, presentes } = varrer();
 
   let cabecalho = ['pt', 'en', 'es', 'arquivo', 'situacao'];
   const existentes = new Map();
@@ -228,8 +376,18 @@ function extrair() {
   }
   // Órfãos ficam no fim, MARCADOS e não apagados: a tradução deles custou
   // trabalho e o texto pode ter só mudado de vírgula.
+  //
+  // ORFAO só quem sumiu MESMO. Uma frase que a varredura não reconheceu como
+  // texto de tela, mas que continua escrita em algum canto do código, fica com
+  // a situação em branco e segue sendo compilada. Marcar essa como órfã é o
+  // erro caro: `compilar` pula órfã, e a tradução sumiria da tela calada.
+  let mantidos = 0;
   for (const [texto, linha] of existentes) {
-    if (!achados.has(texto)) {
+    if (achados.has(texto)) continue;
+    if (presentes.has(texto)) {
+      saida.push({ ...linha, situacao: '' });
+      mantidos++;
+    } else {
       saida.push({ ...linha, situacao: 'ORFAO — sumiu do codigo' });
       orfaos++;
     }
@@ -246,7 +404,8 @@ function extrair() {
 
   console.log(`${achados.size} textos no codigo`);
   console.log(`  ${novos} novos`);
-  console.log(`  ${orfaos} orfaos (marcados, nao apagados)`);
+  console.log(`  ${mantidos} nao reconhecidos, mas AINDA escritos no codigo (mantidos)`);
+  console.log(`  ${orfaos} orfaos de verdade (marcados, nao apagados)`);
   console.log(`CSV: ${CSV}`);
 }
 
@@ -272,12 +431,71 @@ function compilar() {
     }
   }
 
-  for (const destino of [join(RAIZ, 'mobile', 'locales'), join(RAIZ, 'backend', 'src', 'locales')]) {
+  const destinos = [join(RAIZ, 'mobile', 'locales'), join(RAIZ, 'backend', 'src', 'locales')];
+
+  // ── A trava ────────────────────────────────────────────────────────────────
+  //
+  // Compilar REESCREVE os catorze JSON do zero. Se por qualquer motivo uma
+  // linha do CSV sumir ou for marcada órfã por engano, a tradução dela some da
+  // tela em sete idiomas — e some calada, porque `t()` cai no português e
+  // nenhuma tela quebra.
+  //
+  // Foi o que quase aconteceu em 23/09/2026: o extrator de então marcou 281
+  // frases vivas como órfãs, e um `compilar` teria apagado 283 traduções.
+  //
+  // Então: antes de gravar, comparar com o que já está lá — e separar as duas
+  // perdas possíveis, porque elas são coisas muito diferentes.
+  //
+  //   frase que sumiria e NÃO está mais escrita em lugar nenhum
+  //       é faxina, e é o trabalho desta ferramenta. Passa, e só conta quantas.
+  //
+  //   frase que sumiria e AINDA ESTÁ ESCRITA no código
+  //       é o acidente. Alguém veria a tela em português sem nada quebrar.
+  //       Esta para tudo.
+  //
+  // É por isso que `compilar` varre o código, coisa que antes não fazia: sem
+  // olhar o código não há como distinguir faxina de acidente, e quem não
+  // distingue ou apaga demais (o que aconteceu) ou trava sempre (o que faria
+  // ninguém mais usar a ferramenta).
+  const escritos = tudoQueEstaEscrito();
+  const faxina = new Set(), acidentes = new Set();
+  for (const destino of destinos) {
+    for (const idioma of idiomas) {
+      const alvo = join(destino, `${idioma}.json`);
+      if (!existsSync(alvo)) continue;
+      let antigo = {};
+      try { antigo = JSON.parse(readFileSync(alvo, 'utf8')); } catch { continue; }
+      for (const chave of Object.keys(antigo)) {
+        if (dic[idioma][chave] !== undefined) continue;
+        (escritos.has(chave) ? acidentes : faxina).add(chave);
+      }
+    }
+  }
+
+  if (acidentes.size && !process.argv.includes('--force')) {
+    console.error(`\nPAREI: ${acidentes.size} frase(s) sumiriam dos locales e AINDA estao escritas no codigo.\n`);
+    [...acidentes].slice(0, 25).forEach((c) => console.error('  - ' + JSON.stringify(c).slice(0, 90)));
+    if (acidentes.size > 25) console.error(`  ... e mais ${acidentes.size - 25}`);
+    console.error(`
+Cada uma esta traduzida hoje e sumiria da tela em sete idiomas, sem erro nenhum
+aparecer — t() cairia no portugues.
+
+Quase sempre a causa e a mesma: a linha ficou marcada ORFAO no CSV mas a frase
+continua no codigo. Rode 'extrair' de novo e confira a coluna 'situacao'.
+
+Se a remocao for mesmo desejada: rode de novo com --force.
+`);
+    process.exit(1);
+  }
+
+  for (const destino of destinos) {
     mkdirSync(destino, { recursive: true });
     for (const idioma of idiomas) {
       writeFileSync(join(destino, `${idioma}.json`), JSON.stringify(dic[idioma], null, 2) + '\n', 'utf8');
     }
   }
+  if (faxina.size) console.log(`faxina: ${faxina.size} frase(s) que ninguem escreve mais sairam dos locales`);
+  if (acidentes.size) console.log(`(--force) ${acidentes.size} frase(s) AINDA no codigo foram apagadas a pedido`);
 
   console.log(`idiomas: ${idiomas.join(', ')}`);
   for (const l of idiomas) {
