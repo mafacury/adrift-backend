@@ -524,6 +524,11 @@ export async function boatRoutes(app: FastifyInstance) {
            bm.id AS message_id,
            bm.content AS message,
            bm.gift_id,
+           -- O porto escreveu, mas quem escreveu está bloqueado — o LEFT JOIN
+           -- acima derrubou a linha. Sem este aviso a tela mostraria "passou
+           -- sem escrever", que é mentira: o app estaria contando uma história
+           -- diferente da que aconteceu, e por decisão da própria pessoa.
+           (h.message_id IS NOT NULL AND bm.id IS NULL) AS bloqueada,
            bci.interaction_count
          FROM boat_hops h
          -- No JOIN, não no WHERE: o porto continua existindo na história do
@@ -548,8 +553,9 @@ export async function boatRoutes(app: FastifyInstance) {
           country_code: firstMsg[0].country_code,
           hopped_at: boat.created_at,
           // sem `message_id` de propósito: este porto é a mensagem do PRÓPRIO
-          // dono do barco, e ninguém denuncia o que escreveu
+          // dono do barco, e ninguém denuncia nem bloqueia a si mesmo
           message_id: null,
+          bloqueada: false,
           message: firstMsg[0].content,
           gift_id: firstMsg[0].gift_id,
           interaction_count: 0,
