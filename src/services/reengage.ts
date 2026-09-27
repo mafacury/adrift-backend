@@ -16,6 +16,7 @@
 import { pool } from '../db/pool.js';
 import { comeBackMessage } from './push.js';
 import { avisar } from './notify.js';
+import { idiomaDoUsuario } from './i18n.js';
 
 /** A partir daqui a pessoa saiu do sorteio e vira candidata a convite. */
 const INACTIVE_DAYS = 8;
@@ -49,7 +50,7 @@ export async function reengageSweep(): Promise<void> {
     if (rows.length === 0) return;
 
     for (const r of rows) {
-      const { title, body } = comeBackMessage();
+      const { title, body } = comeBackMessage(await idiomaDoUsuario(r.id));
       void avisar(r.id, { titulo: title, corpo: body, url: '/', tag: 'volte' });
     }
     // marca antes de conferir entrega: push que falhou não deve virar insistência

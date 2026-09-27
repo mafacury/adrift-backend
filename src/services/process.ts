@@ -4,6 +4,7 @@ import { avaliarConduta } from './enforcement.js';
 import { config } from '../config/index.js';
 import { boatComingMessage } from './push.js';
 import { avisar } from './notify.js';
+import { idiomaDoUsuario } from './i18n.js';
 import {
   pickNextReceiver,
   pickRandomDestCountry,
@@ -155,7 +156,7 @@ export async function processRouting(data: RoutingData): Promise<void> {
 
     // avisa o receptor que um barco está a caminho (bots não têm token)
     if (!receiver.isBot) {
-      const { title, body } = boatComingMessage();
+      const { title, body } = boatComingMessage(await idiomaDoUsuario(receiver.id));
       void avisar(receiver.id, { titulo: title, corpo: body, url: '/receive', tag: 'barco-vindo' });
     }
   } catch (err) {

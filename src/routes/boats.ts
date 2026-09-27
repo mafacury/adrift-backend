@@ -86,11 +86,12 @@ export async function boatRoutes(app: FastifyInstance) {
       const ultimo: Date | null = freio[0]?.ultimo ?? null;
 
       if (ativos >= config.antispam.maxActiveBoatsPerUser) {
+        const lang = await idiomaDoUsuario(userId);
         return reply.code(429).send({
           error: 'limite_de_barcos',
-          message:
-            `Você já tem ${ativos} barcos no mar. Espere um deles voltar ` +
-            'para casa antes de lançar outro.',
+          message: tr(lang,
+            'Você já tem {n} barcos no mar. Espere um deles voltar para casa antes de lançar outro.',
+            { n: ativos }),
         });
       }
 
@@ -99,12 +100,12 @@ export async function boatRoutes(app: FastifyInstance) {
         const decorrido = (Date.now() - new Date(ultimo).getTime()) / 1000;
         if (decorrido < esperaSeg) {
           const faltam = Math.ceil(esperaSeg - decorrido);
+          const lang = await idiomaDoUsuario(userId);
           return reply.code(429).send({
             error: 'aguarde',
-            message:
-              'Um barco de cada vez. Espere ' +
-              (faltam >= 60 ? `${Math.ceil(faltam / 60)} minuto(s)` : `${faltam} segundos`) +
-              ' para lançar o próximo.',
+            message: faltam >= 60
+              ? tr(lang, 'Um barco de cada vez. Espere {n} minuto(s) para lançar o próximo.', { n: Math.ceil(faltam / 60) })
+              : tr(lang, 'Um barco de cada vez. Espere {n} segundos para lançar o próximo.', { n: faltam }),
             retryAfterSec: faltam,
           });
         }
@@ -283,7 +284,7 @@ export async function boatRoutes(app: FastifyInstance) {
         );
         const creatorId = cr[0]?.creator_user_id;
         if (creatorId && creatorId !== userId) {
-          const msg = boatGiftMessage();
+          const msg = boatGiftMessage(await idiomaDoUsuario(creatorId));
           void avisar(creatorId, { titulo: msg.title, corpo: msg.body, url: '/map', tag: 'presente' });
         }
       }

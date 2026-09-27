@@ -1,6 +1,7 @@
 import { pool } from '../db/pool.js';
 import { config } from '../config/index.js';
 import { ajustesDoFluxo } from './ajustes.js';
+import { tr } from './i18n.js';
 
 /**
  * Notificações push via serviço do Expo (exp.host).
@@ -46,18 +47,18 @@ export async function sendPushToUser(userId: string, title: string, body: string
 }
 
 /** Aviso ao criador de que seu barco recebeu um presente. */
-export function boatGiftMessage(): { title: string; body: string } {
+export function boatGiftMessage(lang = 'pt'): { title: string; body: string } {
   return {
-    title: '🎁 Seu barco recebeu um presente!',
-    body: 'Seu barco está indo muito bem e acaba de receber um presente. Veja a jornada dele!',
+    title: tr(lang, '🎁 Seu barco recebeu um presente!'),
+    body: tr(lang, 'Seu barco está indo muito bem e acaba de receber um presente. Veja a jornada dele!'),
   };
 }
 
 /** Aviso de que um barco está navegando até a pessoa (aparece no horizonte). */
-export function boatComingMessage(): { title: string; body: string } {
+export function boatComingMessage(lang = 'pt'): { title: string; body: string } {
   return {
-    title: '🌅 Um barco está a caminho!',
-    body: 'Avistado no horizonte — logo ele chega até você. Prepare suas palavras.',
+    title: tr(lang, '🌅 Um barco está a caminho!'),
+    body: tr(lang, 'Avistado no horizonte — logo ele chega até você. Prepare suas palavras.'),
   };
 }
 
@@ -66,14 +67,16 @@ export function boatComingMessage(): { title: string; body: string } {
  * prometesse, teria de reservar um, e ele ficaria parado horas caso a pessoa
  * não voltasse (ver services/reengage.ts).
  */
-export function comeBackMessage(): { title: string; body: string } {
+export function comeBackMessage(lang = 'pt'): { title: string; body: string } {
+  // As frases vão escritas por extenso dentro de tr(): é assim que a
+  // ferramenta de traduções as encontra (ela lê a chamada, não a variável).
   const opcoes = [
-    { title: '🌊 O mar andou movimentado',
-      body:  'Faz um tempo que você não aparece. Tem barco cruzando o horizonte agora mesmo.' },
-    { title: '⛵ Seu porto está aberto',
-      body:  'Ninguém atraca num porto fechado. Passe por aqui e deixe um barco te encontrar.' },
-    { title: '🧭 O oceano continua aí',
-      body:  'Enquanto você esteve fora, barcos seguiram viagem. Volte para pegar o próximo.' },
+    { title: tr(lang, '🌊 O mar andou movimentado'),
+      body:  tr(lang, 'Faz um tempo que você não aparece. Tem barco cruzando o horizonte agora mesmo.') },
+    { title: tr(lang, '⛵ Seu porto está aberto'),
+      body:  tr(lang, 'Ninguém atraca num porto fechado. Passe por aqui e deixe um barco te encontrar.') },
+    { title: tr(lang, '🧭 O oceano continua aí'),
+      body:  tr(lang, 'Enquanto você esteve fora, barcos seguiram viagem. Volte para pegar o próximo.') },
   ];
   return opcoes[Math.floor(Math.random() * opcoes.length)];
 }
