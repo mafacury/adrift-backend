@@ -188,10 +188,6 @@ export async function boatRoutes(app: FastifyInstance) {
         return curtaDemais(userId, reply);
       }
 
-      // presente só é anexado a uma mensagem — e só se o usuário o tiver
-      const gift = texto && giftId && (await userOwnsGift(userId, giftId)) ? giftId : null;
-      if (gift) await consumeGift(userId, gift);
-
       // Verify the boat exists and is active, and this user has a pending queue entry
       const { rows: queueRows } = await pool.query(
         `SELECT id FROM receiver_queue
@@ -202,6 +198,13 @@ export async function boatRoutes(app: FastifyInstance) {
       if (!queueRows.length) {
         return reply.code(404).send({ error: 'boat not in your queue' });
       }
+
+      // presente só é anexado a uma mensagem — e só se o usuário o tiver.
+      // DEPOIS da conferência da fila: antes o presente saía do baú e só então
+      // a rota descobria que o barco já tinha ido embora (o 404 acima), e o
+      // presente sumia sem ter viajado.
+      const gift = texto && giftId && (await userOwnsGift(userId, giftId)) ? giftId : null;
+      if (gift) await consumeGift(userId, gift);
 
       // O idioma sai de dentro da transação de propósito: é leitura, e leitura
       // feita por `pool` lá dentro iria por OUTRA conexão — não enxergaria o
@@ -686,7 +689,9 @@ export async function boatRoutes(app: FastifyInstance) {
       // Fragmento derivado de lista fechada — nunca de entrada do usuário.
       const statusSql = legends
         ? `b.status = 'archived' AND b.archive_reason IS DISTINCT FROM 'moderado'`
-        : `b.status <> 'archived'`;
+        // 'paused' fica de fora: é barco denunciado ou em dúvida na moderação,
+        // e o ranking mostra a primeira frase dele para todo mundo
+        : `b.status IN ('active', 'returning')`;
 
       let countryFilter: string | null = null;
       if (req.query.scope === 'country') {
@@ -763,6 +768,26 @@ export async function boatRoutes(app: FastifyInstance) {
 
       const boatId = req.params.id;
       const { messageId } = req.body;
+
+      // A mensagem tem de ser DESTE barco, e quem denuncia tem de ter passado
+      // por ele (recebeu, escreveu ou é o dono). Sem isto a contagem era por
+      // mensagem e a pausa era pelo barco da URL: dava para juntar denúncias
+      // numa mensagem qualquer e pausar um barco que ninguém viu. O formato
+      // conferido antes evita que um id malformado vire erro 500 no banco.
+      const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!UUID.test(boatId) || !UUID.test(messageId)) {
+        return reply.code(404).send({ error: 'not_found' });
+      }
+      const { rows: vinculo } = await pool.query(
+        `SELECT 1 FROM boat_messages m
+          WHERE m.id = $2 AND m.boat_id = $1
+            AND m.user_id <> $3
+            AND (   EXISTS (SELECT 1 FROM boats WHERE id = $1 AND creator_user_id = $3)
+                 OR EXISTS (SELECT 1 FROM receiver_queue WHERE boat_id = $1 AND user_id = $3)
+                 OR EXISTS (SELECT 1 FROM boat_messages WHERE boat_id = $1 AND user_id = $3))`,
+        [boatId, messageId, userId],
+      );
+      if (!vinculo.length) return reply.code(404).send({ error: 'not_found' });
 
       await pool.query(
         `INSERT INTO reports (boat_id, message_id, reporter_user_id)

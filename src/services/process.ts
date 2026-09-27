@@ -68,6 +68,25 @@ export async function processModeration(data: ModerationData): Promise<void> {
     if (verdict === 'approved') {
       console.log(`[moderation] boat ${boatId} approved → routing`);
       await processRouting({ boatId, fromUserId: userId });
+    } else if (verdict === 'rejected' && messageId && historyRows.length > 0) {
+      // Recusada uma RESPOSTA, não o barco. Antes daqui a recusa arquivava o
+      // barco inteiro — e o barco é de outra pessoa: bastava um estranho
+      // escrever uma ofensa para afundar a jornada de quem o lançou, que não
+      // fez nada. Agora sai só a mensagem (as referências a ela ficam nulas,
+      // como no ✕ do painel), quem escreveu responde pela própria conduta, e o
+      // barco segue viagem. O começo do texto fica no log como prova.
+      //
+      // `historyRows.length > 0` é o que separa resposta de lançamento: o
+      // histórico exclui a mensagem julgada, então vazio = é a primeira.
+      await pool.query(
+        `UPDATE moderation_log SET detail = LEFT($2 || ' | removida: ' || $3, 1000)
+          WHERE message_id = $1`,
+        [messageId, detail, content.slice(0, 300)],
+      );
+      await pool.query(`DELETE FROM boat_messages WHERE id = $1`, [messageId]);
+      console.log(`[moderation] resposta ${messageId} recusada e removida (layer ${layer}); barco ${boatId} segue`);
+      await avaliarConduta(userId);
+      await processRouting({ boatId, fromUserId: userId });
     } else if (verdict === 'rejected') {
       await pool.query(
         `UPDATE boats SET status = 'archived', archived_at = NOW(),

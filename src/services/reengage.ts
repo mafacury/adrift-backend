@@ -32,7 +32,12 @@ export async function reengageSweep(): Promise<void> {
       `SELECT id FROM users
        WHERE oauth_provider IS DISTINCT FROM 'bot'
          AND ban_status = 'active'
-         AND fcm_token IS NOT NULL
+         -- Um canal de push, qualquer um. Era só fcm_token — o token do
+         -- aplicativo Android, abandonado quando o Adrift virou só site. Quem
+         -- assinou o aviso no navegador (push_subscriptions) nunca entrava, e o
+         -- convite não chegava a ninguém.
+         AND (fcm_token IS NOT NULL
+              OR EXISTS (SELECT 1 FROM push_subscriptions s WHERE s.user_id = users.id))
          AND receiving_paused = FALSE
          AND last_active_at <  NOW() - INTERVAL '${INACTIVE_DAYS} days'
          AND last_active_at >= NOW() - INTERVAL '${GIVE_UP_DAYS} days'

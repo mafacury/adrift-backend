@@ -61,9 +61,9 @@ export interface TierInfo {
 
 export const TIERS: Record<Tier, TierInfo> = {
   comum:    { id: 'comum',    nome: 'Comum',    estoqueInicial: null, rastro: 'Fica no porto, junto da sua mensagem.' },
-  incomum:  { id: 'incomum',  nome: 'Incomum',  estoqueInicial: 5,    rastro: 'Segue com o barco ate o proximo porto.' },
-  raro:     { id: 'raro',     nome: 'Raro',     estoqueInicial: 3,    rastro: 'Viaja com o barco ate o fim da jornada.' },
-  lendario: { id: 'lendario', nome: 'Lendario', estoqueInicial: 1,    rastro: 'Marca o mapa do barco para sempre.' },
+  incomum:  { id: 'incomum',  nome: 'Incomum',  estoqueInicial: 5,    rastro: 'Segue com o barco até o próximo porto.' },
+  raro:     { id: 'raro',     nome: 'Raro',     estoqueInicial: 3,    rastro: 'Viaja com o barco até o fim da jornada.' },
+  lendario: { id: 'lendario', nome: 'Lendário', estoqueInicial: 1,    rastro: 'Marca o mapa do barco para sempre.' },
 };
 
 /** O nivel sai do peso: um numero so, sem segunda fonte de verdade. */
@@ -200,12 +200,20 @@ export async function getGiftsForUser(userId: string): Promise<{
   for (const id of WELCOME_GIFTS) {
     if (GIFTS[id]) list.push(monta(GIFTS[id], true, 'Boas-vindas'));
   }
-  // 2) presentes de conquista — mostra todos, destravando os cumpridos
+  // 2) presentes de conquista — um cartão por PRESENTE, não por conquista.
+  //    Concha e Mapa rabiscado saem de duas conquistas cada, e o baú mostrava
+  //    dois cartões iguais (com a mesma chave na tela). O `via` aponta a
+  //    conquista que destravou; trancado, aponta a primeira que destrava.
+  const porPresente = new Map<string, { vias: string[]; destravou?: string }>();
   for (const a of ACHIEVEMENTS) {
-    if (!a.gift) continue;
-    const g = GIFTS[a.gift];
-    if (!g) continue;
-    list.push(monta(g, giftUnlocked.has(a.gift), a.title));
+    if (!a.gift || !GIFTS[a.gift]) continue;
+    const e = porPresente.get(a.gift) ?? { vias: [] };
+    e.vias.push(a.title);
+    if (!e.destravou && earnedIds.has(a.id)) e.destravou = a.title;
+    porPresente.set(a.gift, e);
+  }
+  for (const [id, e] of porPresente) {
+    list.push(monta(GIFTS[id], giftUnlocked.has(id), e.destravou ?? e.vias[0]));
   }
 
   list.sort((x, y) => x.weight - y.weight);
