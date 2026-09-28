@@ -672,13 +672,18 @@ export async function boatRoutes(app: FastifyInstance) {
   // ── GET /rankings ──────────────────────────────────────────────────────────
   // Ranking de BARCOS (anônimo): pontos = interações (mensagens de terceiros)
   // + presentes recebidos × 10.
+  //   scope=semana   — MARÉ DA SEMANA: só o que chegou desde segunda-feira
+  //                    (00h UTC). Recomeça toda semana, e é por isso que
+  //                    existe: no ranking de sempre o topo é de barcos com
+  //                    meses de viagem e 500 mensagens, e quem chegou ontem
+  //                    nunca vai aparecer. Aqui todo mundo começa do zero.
   //   scope=world    — barcos em alto-mar (mundial)
   //   scope=country  — barcos em alto-mar do país do criador
   //   scope=legends  — LENDAS: hall da fama permanente dos arquivados. Assim
   //                    aposentar um barco bem colocado o PROMOVE para a lista
   //                    eterna em vez de apagá-lo.
-  // Barcos de bots/demo ficam de fora. Inclui a posição do melhor barco do
-  // usuário logado, mesmo fora do Top 50.
+  // Barcos de bots, de vitrine e de teste ficam de fora. Inclui a posição do
+  // melhor barco do usuário logado, mesmo fora do Top 50.
   app.get<{ Querystring: { scope?: string } }>(
     '/rankings',
     {},
@@ -687,12 +692,18 @@ export async function boatRoutes(app: FastifyInstance) {
       if (!userId) return reply.code(401).send({ error: 'unauthorized' });
 
       const legends = req.query.scope === 'legends';
-      // Fragmento derivado de lista fechada — nunca de entrada do usuário.
+      const semana  = req.query.scope === 'semana';
+      // Fragmentos derivados de lista fechada — nunca de entrada do usuário.
       const statusSql = legends
-        ? `b.status = 'archived' AND b.archive_reason IS DISTINCT FROM 'moderado'`
+        ? `b.status = 'archived' AND COALESCE(b.archive_reason, 'perdido') NOT IN ('moderado', 'teste')`
         // 'paused' fica de fora: é barco denunciado ou em dúvida na moderação,
         // e o ranking mostra a primeira frase dele para todo mundo
         : `b.status IN ('active', 'returning')`;
+      // na semana, só contam as mensagens desde a segunda-feira
+      const janelaSql = semana ? `AND m.created_at >= date_trunc('week', NOW())` : '';
+      // barco sem ponto na semana não entra: "50º lugar com 0 pontos" não é
+      // lugar nenhum, e encheria a lista de barcos parados
+      const soComPontos = semana ? 'WHERE score > 0' : '';
 
       let countryFilter: string | null = null;
       if (req.query.scope === 'country') {
@@ -711,13 +722,14 @@ export async function boatRoutes(app: FastifyInstance) {
             (SELECT LEFT(content, 60) FROM boat_messages
              WHERE boat_id = b.id ORDER BY created_at ASC LIMIT 1) AS initial_message,
             (SELECT COUNT(*)::int FROM boat_messages m
-             WHERE m.boat_id = b.id AND m.user_id <> b.creator_user_id) AS interactions,
+             WHERE m.boat_id = b.id AND m.user_id <> b.creator_user_id ${janelaSql}) AS interactions,
             (SELECT COUNT(*)::int FROM boat_messages m
              WHERE m.boat_id = b.id AND m.user_id <> b.creator_user_id
-               AND m.gift_id IS NOT NULL) AS gifts
+               AND m.gift_id IS NOT NULL ${janelaSql}) AS gifts
           FROM boats b
           JOIN users u ON u.id = b.creator_user_id
           WHERE u.oauth_provider IS DISTINCT FROM 'bot'
+            AND NOT COALESCE(b.vitrine, FALSE)
             AND ${statusSql}
             AND ($1::text IS NULL OR u.country_code = $1)
         ),
@@ -735,6 +747,7 @@ export async function boatRoutes(app: FastifyInstance) {
                 archive_reason, total_nm, unique_countries,
                 (creator_user_id = $2) AS is_mine
          FROM ranked
+         ${soComPontos}
          ORDER BY pos, id
          LIMIT 50`,
         [countryFilter, userId],
@@ -743,13 +756,23 @@ export async function boatRoutes(app: FastifyInstance) {
       const { rows: mine } = await pool.query(
         `${rankedSql}
          SELECT pos, id FROM ranked
-         WHERE creator_user_id = $2
+         WHERE creator_user_id = $2 ${semana ? 'AND score > 0' : ''}
          ORDER BY pos LIMIT 1`,
         [countryFilter, userId],
       );
 
+      // quando a maré vira: a próxima segunda-feira, 00h UTC
+      let fimDaSemana: string | null = null;
+      if (semana) {
+        const { rows } = await pool.query(
+          `SELECT date_trunc('week', NOW()) + INTERVAL '7 days' AS fim`,
+        );
+        fimDaSemana = new Date(rows[0].fim).toISOString();
+      }
+
       return reply.send({
-        scope: legends ? 'legends' : countryFilter ? 'country' : 'world',
+        scope: semana ? 'semana' : legends ? 'legends' : countryFilter ? 'country' : 'world',
+        fim_da_semana: fimDaSemana,
         country: countryFilter,
         rows: top,
         me: mine[0] ?? null,

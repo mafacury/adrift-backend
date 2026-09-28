@@ -33,7 +33,7 @@ export const MAX_IDLE_IGNORES = 10;
 export const LOST_AT_SEA_DAYS = 90;
 
 export type ArchiveReason =
-  | 'chamado' | 'lendaria' | 'esgotado' | 'perdido' | 'moderado';
+  | 'chamado' | 'lendaria' | 'esgotado' | 'perdido' | 'moderado' | 'teste';
 
 /** Texto do selo que fica no quadro do museu. */
 export const REASON_LABEL: Record<ArchiveReason, string> = {
@@ -42,6 +42,8 @@ export const REASON_LABEL: Record<ArchiveReason, string> = {
   esgotado: 'Assunto esgotado',
   perdido:  'Perdido no mar',
   moderado: 'Recolhido pela moderação',
+  // barco de teste do dono, arquivado à mão (migração 041): fica fora das Lendas
+  teste:    'Barco de teste',
 };
 
 async function countryCoords(code: string | null) {
