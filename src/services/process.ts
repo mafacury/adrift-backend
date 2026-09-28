@@ -11,6 +11,8 @@ import {
   enqueueForReceiver,
   getLastHopCountry,
   travelMinutes,
+  ePrimeiraSaida,
+  PRIMEIRA_SAIDA,
 } from './routing.js';
 
 /**
@@ -143,11 +145,20 @@ export async function processRouting(data: RoutingData): Promise<void> {
     const dest = receiver.isBot
       ? await pickRandomDestCountry(boatId)
       : receiver.country;
-    const travelMin = await travelMinutes(lastCountry, dest);
+    let travelMin = await travelMinutes(lastCountry, dest);
+
+    // O primeiro barco da vida de alguém não espera horas pela primeira
+    // resposta — ver `ePrimeiraSaida` em routing.ts.
+    let prazoMin: number | undefined;
+    if (receiver.isBot && await ePrimeiraSaida(boatId)) {
+      travelMin = Math.min(travelMin, PRIMEIRA_SAIDA.viagemMin);
+      prazoMin = PRIMEIRA_SAIDA.prazoMin;
+    }
 
     await enqueueForReceiver(boatId, receiver.id, {
       travelMin,
       destCountry: receiver.isBot ? dest : null,
+      prazoMin,
     });
     console.log(
       `[routing] boat ${boatId} → ${receiver.isBot ? `bot (${dest})` : 'humano'} ` +

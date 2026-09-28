@@ -251,24 +251,166 @@ export async function pickNextReceiver(boatId: string): Promise<Receiver | null>
 export async function enqueueForReceiver(
   boatId: string,
   userId: string,
-  opts: { travelMin: number; destCountry: string | null },
+  opts: {
+    travelMin: number;
+    destCountry: string | null;
+    /**
+     * Prazo de resposta em minutos, no lugar do do painel. Só a primeira
+     * saída usa: a fila de um bot responde, por construção, no máximo 2
+     * minutos antes de expirar — prazo curto é resposta rápida.
+     */
+    prazoMin?: number;
+  },
 ): Promise<void> {
-  // o barco "navega" travelMin minutos (distância real) antes de atracar;
-  // o prazo de resposta só começa a contar quando ele chega (arrives_at)
   const arrivesAt = new Date(Date.now() + opts.travelMin * 60_000);
   const { prazoRespostaHoras } = await ajustesDoFluxo();
-  const expiresAt = new Date(arrivesAt.getTime() + prazoRespostaHoras * 60 * 60 * 1000);
+  const prazoMs = opts.prazoMin != null
+    ? opts.prazoMin * 60_000
+    : prazoRespostaHoras * 60 * 60 * 1000;
+  const expiresAt = new Date(arrivesAt.getTime() + prazoMs);
   await pool.query(
-    // O alvo e o predicado do ON CONFLICT não são enfeite: a trava é um ÍNDICE
-    // PARCIAL (migração 036), e `ON CONFLICT DO NOTHING` sem alvo não enxerga
-    // índice parcial nenhum. Sem estas duas linhas a cláusula volta a ser o que
-    // foi até 07/09/2026 — decoração que nunca disparou.
     `INSERT INTO receiver_queue (boat_id, user_id, arrives_at, expires_at, dest_country)
      VALUES ($1, $2, $3, $4, $5)
      ON CONFLICT (boat_id, user_id) WHERE status = 'pending' DO NOTHING`,
     [boatId, userId, arrivesAt, expiresAt, opts.destCountry],
   );
 }
+
+// ── A primeira travessia ─────────────────────────────────────────────────────
+//
+// Medido em 27/09/2026, nas contas novas do último mês: o primeiro barco
+// chegava de 2 a 7 HORAS depois do cadastro, e a primeira resposta ao barco
+// lançado vinha de 5 a 9 horas depois. As pessoas ficavam minutos. Quase todas
+// foram embora sem ver o Adrift acontecer uma única vez — e não voltaram.
+//
+// A viagem lenta é o produto, mas não na primeira vez: antes de alguém
+// entender que o mar não tem pressa, ele precisa ver que o mar existe. Por isso
+// as duas exceções abaixo valem UMA vez por pessoa e nunca mais.
+
+/** Minutos da primeira chegada — o bastante para ver o barco no horizonte. */
+const PRIMEIRA_CHEGADA_MIN = 2;
+
+/**
+ * O primeiro barco da vida de alguém, em minutos.
+ *
+ * Chamada pela consulta da fila (que o app faz a cada 30 s em qualquer tela).
+ * Só age para quem NUNCA teve barco atracado:
+ *   - se já há um vindo, mas ainda longe, ele é trazido para perto;
+ *   - se não há nenhum, um barco que ia para um BOT muda de rumo e vem para
+ *     cá. Bot é reserva, existe para o mar não secar; gente nova vale mais.
+ *
+ * O barco escolhido é de uma pessoa de verdade quando possível, e de tamanho
+ * médio: um de 500 mensagens é uma parede na primeira vez, um de 2 não mostra
+ * nada. Trava consultiva por pessoa: duas consultas simultâneas não trazem
+ * dois barcos.
+ */
+export async function primeiraTravessia(userId: string): Promise<void> {
+  const { rows: quem } = await pool.query(
+    `SELECT
+       u.ban_status = 'active' AND NOT u.receiving_paused AND u.deleted_at IS NULL
+         AND u.oauth_provider IS DISTINCT FROM 'bot' AND u.reputation_score > 0 AS pode,
+       EXISTS (SELECT 1 FROM receiver_queue q
+                WHERE q.user_id = u.id AND q.arrives_at <= NOW()) AS ja_recebeu
+     FROM users u WHERE u.id = $1`,
+    [userId],
+  );
+  if (!quem[0]?.pode || quem[0].ja_recebeu) return;
+
+  const { prazoRespostaHoras } = await ajustesDoFluxo();
+
+  await emTransacao(async (c) => {
+    const { rows: trava } = await c.query(
+      `SELECT pg_try_advisory_xact_lock(hashtext('primeira:' || $1::text)) AS ok`, [userId],
+    );
+    if (!trava[0]?.ok) return;
+
+    // 1) já vem um, mas longe: trazer para perto
+    const { rows: vindo } = await c.query(
+      `UPDATE receiver_queue
+          SET arrives_at = NOW() + INTERVAL '${PRIMEIRA_CHEGADA_MIN} minutes',
+              expires_at = NOW() + INTERVAL '${PRIMEIRA_CHEGADA_MIN} minutes'
+                                 + ($2 || ' hours')::INTERVAL
+        WHERE id = (SELECT id FROM receiver_queue
+                     WHERE user_id = $1 AND status = 'pending'
+                     ORDER BY arrives_at LIMIT 1)
+          AND arrives_at > NOW() + INTERVAL '${PRIMEIRA_CHEGADA_MIN + 1} minutes'
+      RETURNING id`,
+      [userId, String(prazoRespostaHoras)],
+    );
+    if (vindo.length) return;
+    const { rows: temFila } = await c.query(
+      `SELECT 1 FROM receiver_queue WHERE user_id = $1 AND status = 'pending' LIMIT 1`,
+      [userId],
+    );
+    if (temFila.length) return;   // já vem um, e já está perto
+
+    // 2) nenhum vindo: desviar um que ia para um bot
+    const { rows: alvo } = await c.query(
+      `SELECT rq.id AS fila_id, rq.boat_id
+         FROM receiver_queue rq
+         JOIN users bu ON bu.id = rq.user_id AND bu.oauth_provider = 'bot'
+         JOIN boats b  ON b.id = rq.boat_id
+         JOIN users cu ON cu.id = b.creator_user_id
+        WHERE rq.status = 'pending'
+          AND b.status = 'active' AND NOT COALESCE(b.vitrine, FALSE)
+          AND b.creator_user_id <> $1
+          AND ${semBloqueioEntre('$1', 'b.creator_user_id')}
+          AND EXISTS (SELECT 1 FROM moderation_log ml
+                       WHERE ml.boat_id = b.id AND ml.verdict = 'approved')
+          AND NOT EXISTS (SELECT 1 FROM receiver_queue x
+                           WHERE x.boat_id = b.id AND x.user_id = $1)
+        ORDER BY (cu.oauth_provider IS DISTINCT FROM 'bot') DESC,
+                 ABS((SELECT COUNT(*) FROM boat_messages m WHERE m.boat_id = b.id) - 25) ASC,
+                 RANDOM()
+        LIMIT 1
+        FOR UPDATE OF rq SKIP LOCKED`,
+      [userId],
+    );
+    if (!alvo.length) return;
+
+    // O bot perde o barco sem responder. Fica 'expired' e não 'skipped':
+    // deixar passar conta para o barco voltar por assunto esgotado, e o bot
+    // não deixou passar nada — o barco mudou de rumo.
+    const { rowCount } = await c.query(
+      `UPDATE receiver_queue SET status = 'expired'
+        WHERE id = $1 AND status = 'pending'`,
+      [alvo[0].fila_id],
+    );
+    if (!rowCount) return;
+    await c.query(
+      `INSERT INTO receiver_queue (boat_id, user_id, arrives_at, expires_at, dest_country)
+       VALUES ($1, $2, NOW() + INTERVAL '${PRIMEIRA_CHEGADA_MIN} minutes',
+               NOW() + INTERVAL '${PRIMEIRA_CHEGADA_MIN} minutes' + ($3 || ' hours')::INTERVAL,
+               NULL)
+       ON CONFLICT (boat_id, user_id) WHERE status = 'pending' DO NOTHING`,
+      [alvo[0].boat_id, userId, String(prazoRespostaHoras)],
+    );
+    console.log(`[primeira] barco ${alvo[0].boat_id} desviado de um bot para quem acabou de chegar`);
+  });
+}
+
+/**
+ * O primeiro barco que alguém lança, respondido em minutos.
+ *
+ * Vale para a PRIMEIRA saída do PRIMEIRO barco da pessoa, e só quando o
+ * sorteio caiu num bot (humano continua tendo o tempo dele: não se apressa
+ * gente). Viagem curta + prazo curto: a varredura dos bots responde, por
+ * construção, até 2 minutos antes do prazo acabar — a resposta sai entre 6 e
+ * 12 minutos depois do lançamento, em vez de 5 a 9 horas.
+ */
+export async function ePrimeiraSaida(boatId: string): Promise<boolean> {
+  const { rows } = await pool.query(
+    `SELECT
+       NOT EXISTS (SELECT 1 FROM boat_hops WHERE boat_id = $1)
+       AND NOT EXISTS (SELECT 1 FROM receiver_queue WHERE boat_id = $1)
+       AND (SELECT COUNT(*) FROM boats o WHERE o.creator_user_id = b.creator_user_id) = 1
+       AND NOT COALESCE(b.vitrine, FALSE) AS primeira
+     FROM boats b WHERE b.id = $1`,
+    [boatId],
+  );
+  return !!rows[0]?.primeira;
+}
+export const PRIMEIRA_SAIDA = { viagemMin: 4, prazoMin: 8 } as const;
 
 export async function getLastHopCountry(boatId: string): Promise<string | null> {
   const { rows } = await pool.query(
