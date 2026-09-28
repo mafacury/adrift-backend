@@ -31,6 +31,8 @@ import { pool } from '../db/pool.js';
 import { REASON_LABEL, ArchiveReason, totalNauticalMiles } from '../services/journey.js';
 import { COUNTRY_LANG } from '../services/country-data.js';
 import { GIFTS } from '../services/gifts.js';
+import { assinaturaDoDiario, paginaDeSaida } from '../services/diario.js';
+import { idiomaSuportado } from '../services/i18n.js';
 
 const APP_URL = process.env.APP_URL ?? 'https://adriftapp.fun';
 
@@ -85,6 +87,26 @@ function esc(s: string): string {
 }
 
 export async function publicRoutes(app: FastifyInstance) {
+  // ── GET /diario/sair ───────────────────────────────────────────────────────
+  // O "não quero mais" do diário de bordo. Funciona sem login — quem clica no
+  // e-mail quase nunca está com o app aberto, e pedir senha para parar de
+  // receber e-mail é o caminho mais curto para o botão de spam. A assinatura
+  // (HMAC do id com o segredo do servidor) é o que impede desligar o diário
+  // de outra pessoa trocando o id na URL.
+  app.get<{ Querystring: { u?: string; s?: string } }>('/diario/sair', async (req, reply) => {
+    const { u, s: assinatura } = req.query;
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    let lang = 'en';
+    let ok = false;
+    if (u && assinatura && UUID.test(u) && assinatura === assinaturaDoDiario(u)) {
+      const { rows } = await pool.query(
+        `UPDATE users SET diario_off = TRUE WHERE id = $1 RETURNING lang`, [u],
+      );
+      if (rows.length) { ok = true; lang = idiomaSuportado(rows[0].lang); }
+    }
+    return reply.code(ok ? 200 : 400).type('text/html; charset=utf-8').send(paginaDeSaida(lang, ok));
+  });
+
   app.get<{ Params: { id: string } }>('/j/:id', async (req, reply) => {
     const { id } = req.params;
 

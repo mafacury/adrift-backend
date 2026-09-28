@@ -4,6 +4,7 @@ import { processRouting, sweepStrandedBoats, reenfileirarNaoModerados } from './
 import { botRespondSweep } from './bots.js';
 import { journeySweep } from './journey.js';
 import { reengageSweep } from './reengage.js';
+import { diarioSweep } from './diario.js';
 import { avisarChegadas, avisarPrazo, avisarPerdas } from './alerts.js';
 import { podarRastro } from './rastro.js';
 import { manterVitrine } from './vitrine.js';
@@ -61,6 +62,12 @@ export function startScheduler() {
   // Uma vez por dia, às 15h UTC (fim de manhã no Brasil, tarde na Europa):
   // chama de volta quem sumiu. Não reserva barco — ver services/reengage.ts.
   cron.schedule('0 15 * * *', reengageSweep);
+
+  // Uma vez por dia, às 16h UTC: o diário de bordo por e-mail para quem sumiu
+  // e teve novidade no barco. As travas (um por semana, só com novidade) moram
+  // em services/diario.ts — rodar todo dia só significa que ninguém espera
+  // uma semana a mais por ter sumido na terça em vez da segunda.
+  cron.schedule('0 16 * * *', diarioSweep);
 
   // A cada 30 min: empurra a chegada dos barcos da vitrine para a frente.
   // Sem isto a hora de chegada passa, o selo "segue viagem em ~4h17" some, e

@@ -467,7 +467,7 @@ ${miudo}
       </p>
       <p style="margin:0 0 6px;font-size:12px;line-height:18px;color:#6B7F94">
         <a href="${APP_URL}" style="color:#2E86AB;text-decoration:none">${APP_URL.replace(/^https?:\/\//, '')}</a>
-        — ${tr(lang, 'mensagens em garrafas, de estranho em estranho pelo mundo.')}
+        — ${tr(lang, 'mensagens em barcos, de estranho em estranho pelo mundo.')}
       </p>
       <p style="margin:0;font-size:11.5px;line-height:17px;color:#93A5B5">
         ${tr(lang, 'Você recebeu este e-mail porque tem uma conta no Adrift.')}
@@ -569,6 +569,82 @@ export function emailDeVerificacao(
  * Sem verificação exigida não existe esse "depois", então nesse caso ele sai
  * logo após o cadastro.
  */
+/** Texto de outra pessoa dentro do HTML: nunca cru. */
+function escaparHtml(t: string): string {
+  return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/**
+ * O diário de bordo (services/diario.ts): o que os barcos viveram enquanto a
+ * pessoa esteve fora. Os números vêm em linhas próprias — cada uma é uma frase
+ * inteira traduzível, e as que dão zero nem aparecem.
+ */
+export function emailDoDiario(d: {
+  lang: string;
+  mensagens: number; paises: number; presentes: number; esperando: number;
+  trecho: { texto: string; pais: string } | null;
+  linkDeSaida: string;
+}): { assunto: string; html: string; texto: string } {
+  const { lang } = d;
+  const assunto = d.mensagens === 1
+    ? tr(lang, '📖 Diário de bordo: alguém escreveu no seu barco')
+    : tr(lang, '📖 Diário de bordo: {n} mensagens novas nos seus barcos', { n: d.mensagens });
+
+  const numeros: string[] = [];
+  if (d.paises > 0) numeros.push('🌍 ' + (d.paises === 1
+    ? tr(lang, 'Seus barcos atracaram em {n} país', { n: d.paises })
+    : tr(lang, 'Seus barcos atracaram em {n} países', { n: d.paises })));
+  if (d.mensagens > 0) numeros.push('✍️ ' + (d.mensagens === 1
+    ? tr(lang, '{n} mensagem de estranhos', { n: d.mensagens })
+    : tr(lang, '{n} mensagens de estranhos', { n: d.mensagens })));
+  if (d.presentes > 0) numeros.push('🎁 ' + (d.presentes === 1
+    ? tr(lang, '{n} presente deixado a bordo', { n: d.presentes })
+    : tr(lang, '{n} presentes deixados a bordo', { n: d.presentes })));
+
+  const abertura = tr(lang, 'Enquanto você esteve fora, os seus barcos seguiram viagem.');
+  const trechoIntro = d.trecho ? tr(lang, 'Uma das mensagens veio de {pais}:', { pais: d.trecho.pais }) : '';
+  const trechoTexto = d.trecho
+    ? (d.trecho.texto.length > 220 ? d.trecho.texto.slice(0, 217).trimEnd() + '…' : d.trecho.texto)
+    : '';
+  const esperando = d.esperando > 0
+    ? tr(lang, 'E há um barco atracado no seu porto esperando a sua resposta.')
+    : '';
+  const botao = tr(lang, 'Ler no Adrift');
+  const regra = tr(lang, 'O diário chega no máximo uma vez por semana, e só quando há novidade.');
+  const sair = tr(lang, 'Não quero mais receber o diário');
+
+  const paragrafos = [
+    abertura,
+    numeros.map(escaparHtml).join('<br>'),
+    ...(d.trecho ? [
+      escaparHtml(trechoIntro),
+      `<em style="display:block;border-left:3px solid #C9A971;padding-left:12px;color:#17456B">` +
+        `&ldquo;${escaparHtml(trechoTexto).replace(/\n/g, '<br>')}&rdquo;</em>`,
+    ] : []),
+    ...(esperando ? [`<strong>${escaparHtml(esperando)}</strong>`] : []),
+  ];
+
+  const html = moldar({
+    lang,
+    titulo: assunto,
+    paragrafos,
+    botao: { texto: botao, href: `${APP_URL}/map` },
+    nota: `${escaparHtml(regra)} <a href="${d.linkDeSaida}" style="color:#6B7F94">${escaparHtml(sair)}</a>`,
+  });
+
+  const texto = [
+    abertura, '',
+    ...numeros, '',
+    ...(d.trecho ? [trechoIntro, `"${trechoTexto}"`, ''] : []),
+    ...(esperando ? [esperando, ''] : []),
+    `${botao}: ${APP_URL}/map`, '',
+    regra,
+    `${sair}: ${d.linkDeSaida}`,
+  ].join('\n') + rodapeTexto(lang);
+
+  return { assunto, html, texto };
+}
+
 export function emailDeBoasVindas(lang = 'pt'): { assunto: string; html: string; texto: string } {
   const assunto = tr(lang, 'Bem-vindo a bordo do Adrift');
 

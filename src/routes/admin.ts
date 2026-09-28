@@ -4,6 +4,7 @@ import { processRouting } from '../services/process.js';
 import { avisarBanimento } from '../services/enforcement.js';
 import { limparCacheDeAjustes } from '../services/ajustes.js';
 import { STAGE_CASE_SQL } from '../services/progress.js';
+import { novidadesDe, mandarDiario } from '../services/diario.js';
 
 // Middleware shared by all admin routes
 async function requireAdmin(req: FastifyRequest, reply: FastifyReply) {
@@ -14,6 +15,19 @@ async function requireAdmin(req: FastifyRequest, reply: FastifyReply) {
 
 export async function adminRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireAdmin);
+
+  // ── POST /admin/diario/teste ───────────────────────────────────────────────
+  // Manda o diário de bordo para o PRÓPRIO administrador, com as novidades dos
+  // barcos dele nos últimos 7 dias — sem as travas de "sumido há 3 dias" e de
+  // "um por semana". É para ver como o e-mail chega antes de ele ir para os
+  // outros. Não marca diario_enviado_at.
+  app.post('/admin/diario/teste', async (req, reply) => {
+    const userId = (req as any).user.id;
+    const { rows } = await pool.query(`SELECT id, email, lang FROM users WHERE id = $1`, [userId]);
+    const n = await novidadesDe(userId, new Date(Date.now() - 7 * 24 * 3600 * 1000));
+    const enviado = await mandarDiario(rows[0], n);
+    return reply.send({ enviado, para: rows[0].email, ...n, trecho: !!n.trecho });
+  });
 
   // ── GET /admin/stats ───────────────────────────────────────────────────────
   app.get('/admin/stats', async (_req, reply) => {

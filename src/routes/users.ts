@@ -13,6 +13,7 @@ import bcrypt from 'bcryptjs';
 import { excluirConta } from '../services/exclusao.js';
 import { idiomaSuportado, tr } from '../services/i18n.js';
 import { semBloqueioEntre } from '../services/bloqueio.js';
+import { primeiraTravessia } from '../services/routing.js';
 
 let cacheTextos: { at: number; mapa: Record<string, string> } | null = null;
 
@@ -420,6 +421,13 @@ export async function userRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const userId = (req as any).user?.id;
       if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+
+      // Quem nunca teve barco atracado ganha o primeiro em minutos, não em
+      // horas — ver services/routing.ts. Nunca na espiada nem na vitrine (o
+      // token delas é de leitura), e uma falha aqui não pode custar a fila.
+      if (!(req as any).user?.espiando) {
+        await primeiraTravessia(userId).catch((e) => console.error('[primeira]', e));
+      }
 
       const { rows } = await pool.query(
         `SELECT
@@ -1094,6 +1102,61 @@ export async function userRoutes(app: FastifyInstance) {
         [req.params.id, userId],
       );
       return reply.send({ status: 'ok' });
+    },
+  );
+
+  // ── GET /users/me/passaporte ───────────────────────────────────────────────
+  //
+  // O passaporte: um carimbo por país onde um barco desta pessoa atracou. É
+  // coleção de longo prazo (195 carimbos), e sai inteira de dados que já
+  // existiam — cada pulo grava o país. Nada de outra pessoa sai daqui: só o
+  // país, a data do primeiro carimbo e quantos barcos passaram por lá.
+  app.get('/users/me/passaporte', {}, async (req, reply) => {
+    const userId = (req as any).user?.id;
+    if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+
+    const { rows } = await pool.query(
+      `SELECT h.country_code AS code,
+              MIN(h.hopped_at)          AS primeiro,
+              COUNT(DISTINCT h.boat_id)::int AS barcos
+         FROM boat_hops h
+         JOIN boats b ON b.id = h.boat_id
+        WHERE b.creator_user_id = $1
+          AND h.country_code IS NOT NULL AND h.country_code <> 'XX'
+        GROUP BY h.country_code
+        ORDER BY MIN(h.hopped_at) ASC`,
+      [userId],
+    );
+    const { rows: t } = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM countries WHERE active`,
+    );
+    return reply.send({ carimbos: rows, total: t[0].n });
+  });
+
+  // ── Diário de bordo: ligar / desligar ──────────────────────────────────────
+  // O e-mail semanal (services/diario.ts). O link de saída do próprio e-mail
+  // faz o mesmo sem precisar entrar — ver routes/public.ts.
+  app.get('/users/me/diario', {}, async (req, reply) => {
+    const userId = (req as any).user?.id;
+    if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+    const { rows } = await pool.query(
+      `SELECT diario_off FROM users WHERE id = $1`, [userId],
+    );
+    return reply.send({ ligado: !rows[0]?.diario_off });
+  });
+
+  app.post<{ Body: { ligado: boolean } }>(
+    '/users/me/diario',
+    { schema: { body: { type: 'object', required: ['ligado'], properties: {
+      ligado: { type: 'boolean' },
+    } } } },
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+      await pool.query(
+        `UPDATE users SET diario_off = $2 WHERE id = $1`, [userId, !req.body.ligado],
+      );
+      return reply.send({ ligado: req.body.ligado });
     },
   );
 
