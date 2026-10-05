@@ -4,6 +4,7 @@ import { getAchievementsForUser, pendingAchievements, markAchievementsSeen } fro
 import { getGiftsForUser, giftInfo } from '../services/gifts.js';
 import { liveStateFrom, departsInSeconds } from '../services/live.js';
 import { horizonFor } from '../services/horizon.js';
+import { noticiasPara } from '../services/noticias.js';
 import { MIN_COUNTRIES_TO_RETURN, REASON_LABEL, ArchiveReason } from '../services/journey.js';
 import { agradecer, fraseValida, recadosDe, marcarRecadosLidos, jaAgradecidos } from '../services/thanks.js';
 import { webPushLigado } from '../services/notify.js';
@@ -685,6 +686,19 @@ export async function userRoutes(app: FastifyInstance) {
       const userId = (req as any).user?.id;
       if (!userId) return reply.code(401).send({ error: 'unauthorized' });
       return reply.send(await horizonFor(userId));
+    },
+  );
+
+  // ── GET /users/me/noticias ─────────────────────────────────────────────────
+  // O que o aviãozinho da Jornada anuncia na faixa: só fatos do banco, nunca
+  // frase pronta inventada (ver services/noticias.ts).
+  app.get(
+    '/users/me/noticias',
+    {},
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+      return reply.send(await noticiasPara(userId));
     },
   );
 
