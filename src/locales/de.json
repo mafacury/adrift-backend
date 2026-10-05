@@ -668,5 +668,17 @@
   "A maré vira em {n} dia — os pontos voltam a zero.": "In {n} Tag kentert die Tide — die Punkte gehen auf null.",
   "A maré vira em {n} dias — os pontos voltam a zero.": "In {n} Tagen kentert die Tide — die Punkte gehen auf null.",
   "🌊 A maré desta semana ainda está parada": "🌊 Die Tide dieser Woche steht noch still",
-  "Os primeiros pontos da semana podem ser seus: cada mensagem que chega ao seu barco conta.": "Die ersten Punkte der Woche können deine sein: Jede Nachricht, die dein Boot erreicht, zählt."
+  "Os primeiros pontos da semana podem ser seus: cada mensagem que chega ao seu barco conta.": "Die ersten Punkte der Woche können deine sein: Jede Nachricht, die dein Boot erreicht, zählt.",
+  "{pais}: a {modelo} #{codigo} acaba de zarpar": "{pais}: Die {modelo} #{codigo} hat gerade abgelegt",
+  "A {modelo} #{codigo} acaba de receber mais uma mensagem": "Die {modelo} #{codigo} hat gerade eine weitere Nachricht erhalten",
+  "{pais}: tem barco novo no mar": "{pais}: Ein neues Boot ist auf See",
+  "A {modelo} #{codigo} acaba de completar a volta ao mundo: 195 países!": "Die {modelo} #{codigo} hat gerade die Weltumrundung geschafft: 195 Länder!",
+  "A {modelo} #{codigo} acaba de chegar ao seu {n}º país": "Die {modelo} #{codigo} hat gerade ihr {n}. Land erreicht",
+  "{pais}: seu barco #{codigo} acaba de passar por lá": "{pais}: Dein Boot #{codigo} ist gerade dort vorbeigekommen",
+  "Já são {n} mensagens navegando no oceano do Adrift": "Schon {n} Nachrichten segeln über den Ozean von Adrift",
+  "{n} mensagens escritas nas últimas 24 horas": "{n} Nachrichten in den letzten 24 Stunden geschrieben",
+  "Os barcos do Adrift já passaram por {n} países": "Adrift-Boote waren schon in {n} Ländern",
+  "Os barcos do Adrift já navegaram {n} milhas": "Adrift-Boote sind schon {n} Meilen gesegelt",
+  "Já somos {n} barcos no oceano de mensagens": "Wir sind schon {n} Boote auf dem Ozean der Nachrichten",
+  "Já conseguiu o seu presente de indicação? Toque aqui": "Schon dein Empfehlungsgeschenk bekommen? Hier tippen"
 }

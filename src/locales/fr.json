@@ -668,5 +668,17 @@
   "A maré vira em {n} dia — os pontos voltam a zero.": "La marée tourne dans {n} jour — les points reviennent à zéro.",
   "A maré vira em {n} dias — os pontos voltam a zero.": "La marée tourne dans {n} jours — les points reviennent à zéro.",
   "🌊 A maré desta semana ainda está parada": "🌊 La marée de cette semaine n'a pas encore bougé",
-  "Os primeiros pontos da semana podem ser seus: cada mensagem que chega ao seu barco conta.": "Les premiers points de la semaine peuvent être les vôtres : chaque message qui arrive sur votre bateau compte."
+  "Os primeiros pontos da semana podem ser seus: cada mensagem que chega ao seu barco conta.": "Les premiers points de la semaine peuvent être les vôtres : chaque message qui arrive sur votre bateau compte.",
+  "{pais}: a {modelo} #{codigo} acaba de zarpar": "{pais} : la {modelo} #{codigo} vient de lever l'ancre",
+  "A {modelo} #{codigo} acaba de receber mais uma mensagem": "La {modelo} #{codigo} vient de recevoir un nouveau message",
+  "{pais}: tem barco novo no mar": "{pais} : un nouveau bateau a pris la mer",
+  "A {modelo} #{codigo} acaba de completar a volta ao mundo: 195 países!": "La {modelo} #{codigo} vient de boucler le tour du monde : 195 pays !",
+  "A {modelo} #{codigo} acaba de chegar ao seu {n}º país": "La {modelo} #{codigo} vient d'atteindre son {n}e pays",
+  "{pais}: seu barco #{codigo} acaba de passar por lá": "{pais} : votre bateau #{codigo} vient d'y passer",
+  "Já são {n} mensagens navegando no oceano do Adrift": "Déjà {n} messages naviguent sur l'océan d'Adrift",
+  "{n} mensagens escritas nas últimas 24 horas": "{n} messages écrits ces dernières 24 heures",
+  "Os barcos do Adrift já passaram por {n} países": "Les bateaux d'Adrift sont déjà passés par {n} pays",
+  "Os barcos do Adrift já navegaram {n} milhas": "Les bateaux d'Adrift ont déjà parcouru {n} milles",
+  "Já somos {n} barcos no oceano de mensagens": "Nous sommes déjà {n} bateaux sur l'océan des messages",
+  "Já conseguiu o seu presente de indicação? Toque aqui": "Vous avez déjà reçu votre cadeau de parrainage ? Touchez ici"
 }

@@ -668,5 +668,17 @@
   "A maré vira em {n} dia — os pontos voltam a zero.": "يتبدّل المدّ بعد {n} يوم — تعود النقاط إلى الصفر.",
   "A maré vira em {n} dias — os pontos voltam a zero.": "يتبدّل المدّ بعد {n} أيام — تعود النقاط إلى الصفر.",
   "🌊 A maré desta semana ainda está parada": "🌊 مدّ هذا الأسبوع لم يتحرك بعد",
-  "Os primeiros pontos da semana podem ser seus: cada mensagem que chega ao seu barco conta.": "قد تكون أولى نقاط الأسبوع لك: كل رسالة تصل إلى قاربك تُحتسب."
+  "Os primeiros pontos da semana podem ser seus: cada mensagem que chega ao seu barco conta.": "قد تكون أولى نقاط الأسبوع لك: كل رسالة تصل إلى قاربك تُحتسب.",
+  "{pais}: a {modelo} #{codigo} acaba de zarpar": "{pais}: أبحرت للتو {modelo} #{codigo}",
+  "A {modelo} #{codigo} acaba de receber mais uma mensagem": "تلقّت {modelo} #{codigo} للتو رسالة أخرى",
+  "{pais}: tem barco novo no mar": "{pais}: قارب جديد في البحر",
+  "A {modelo} #{codigo} acaba de completar a volta ao mundo: 195 países!": "أكملت {modelo} #{codigo} للتو رحلتها حول العالم: 195 دولة!",
+  "A {modelo} #{codigo} acaba de chegar ao seu {n}º país": "وصلت {modelo} #{codigo} للتو إلى دولتها رقم {n}",
+  "{pais}: seu barco #{codigo} acaba de passar por lá": "{pais}: مرّ قاربك #{codigo} من هناك للتو",
+  "Já são {n} mensagens navegando no oceano do Adrift": "{n} رسالة تبحر الآن في محيط Adrift",
+  "{n} mensagens escritas nas últimas 24 horas": "{n} رسالة كُتبت في آخر 24 ساعة",
+  "Os barcos do Adrift já passaram por {n} países": "مرّت قوارب Adrift بالفعل بـ {n} دولة",
+  "Os barcos do Adrift já navegaram {n} milhas": "أبحرت قوارب Adrift بالفعل {n} ميل",
+  "Já somos {n} barcos no oceano de mensagens": "أصبحنا {n} قاربًا في محيط الرسائل",
+  "Já conseguiu o seu presente de indicação? Toque aqui": "هل حصلت على هدية الدعوة بعد؟ اضغط هنا"
 }

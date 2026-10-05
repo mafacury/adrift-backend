@@ -668,5 +668,17 @@
   "A maré vira em {n} dia — os pontos voltam a zero.": "The tide turns in {n} day — points go back to zero.",
   "A maré vira em {n} dias — os pontos voltam a zero.": "The tide turns in {n} days — points go back to zero.",
   "🌊 A maré desta semana ainda está parada": "🌊 This week's tide hasn't moved yet",
-  "Os primeiros pontos da semana podem ser seus: cada mensagem que chega ao seu barco conta.": "The week's first points could be yours: every message that reaches your boat counts."
+  "Os primeiros pontos da semana podem ser seus: cada mensagem que chega ao seu barco conta.": "The week's first points could be yours: every message that reaches your boat counts.",
+  "{pais}: a {modelo} #{codigo} acaba de zarpar": "{pais}: the {modelo} #{codigo} just set sail",
+  "A {modelo} #{codigo} acaba de receber mais uma mensagem": "The {modelo} #{codigo} just received another message",
+  "{pais}: tem barco novo no mar": "{pais}: there's a new boat at sea",
+  "A {modelo} #{codigo} acaba de completar a volta ao mundo: 195 países!": "The {modelo} #{codigo} just sailed around the whole world: 195 countries!",
+  "A {modelo} #{codigo} acaba de chegar ao seu {n}º país": "The {modelo} #{codigo} just reached its {n}th country",
+  "{pais}: seu barco #{codigo} acaba de passar por lá": "{pais}: your boat #{codigo} just passed through",
+  "Já são {n} mensagens navegando no oceano do Adrift": "{n} messages are already sailing the Adrift ocean",
+  "{n} mensagens escritas nas últimas 24 horas": "{n} messages written in the last 24 hours",
+  "Os barcos do Adrift já passaram por {n} países": "Adrift boats have already visited {n} countries",
+  "Os barcos do Adrift já navegaram {n} milhas": "Adrift boats have already sailed {n} miles",
+  "Já somos {n} barcos no oceano de mensagens": "We are now {n} boats on the ocean of messages",
+  "Já conseguiu o seu presente de indicação? Toque aqui": "Got your referral gift yet? Tap here"
 }

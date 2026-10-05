@@ -668,5 +668,17 @@
   "A maré vira em {n} dia — os pontos voltam a zero.": "La marea cambia en {n} día: los puntos vuelven a cero.",
   "A maré vira em {n} dias — os pontos voltam a zero.": "La marea cambia en {n} días: los puntos vuelven a cero.",
   "🌊 A maré desta semana ainda está parada": "🌊 La marea de esta semana aún está quieta",
-  "Os primeiros pontos da semana podem ser seus: cada mensagem que chega ao seu barco conta.": "Los primeros puntos de la semana pueden ser tuyos: cada mensaje que llega a tu barco cuenta."
+  "Os primeiros pontos da semana podem ser seus: cada mensagem que chega ao seu barco conta.": "Los primeros puntos de la semana pueden ser tuyos: cada mensaje que llega a tu barco cuenta.",
+  "{pais}: a {modelo} #{codigo} acaba de zarpar": "{pais}: la {modelo} #{codigo} acaba de zarpar",
+  "A {modelo} #{codigo} acaba de receber mais uma mensagem": "La {modelo} #{codigo} acaba de recibir un mensaje más",
+  "{pais}: tem barco novo no mar": "{pais}: hay un barco nuevo en el mar",
+  "A {modelo} #{codigo} acaba de completar a volta ao mundo: 195 países!": "¡La {modelo} #{codigo} acaba de dar la vuelta al mundo: 195 países!",
+  "A {modelo} #{codigo} acaba de chegar ao seu {n}º país": "La {modelo} #{codigo} acaba de llegar a su {n}.º país",
+  "{pais}: seu barco #{codigo} acaba de passar por lá": "{pais}: tu barco #{codigo} acaba de pasar por allí",
+  "Já são {n} mensagens navegando no oceano do Adrift": "Ya son {n} mensajes navegando por el océano de Adrift",
+  "{n} mensagens escritas nas últimas 24 horas": "{n} mensajes escritos en las últimas 24 horas",
+  "Os barcos do Adrift já passaram por {n} países": "Los barcos de Adrift ya pasaron por {n} países",
+  "Os barcos do Adrift já navegaram {n} milhas": "Los barcos de Adrift ya navegaron {n} millas",
+  "Já somos {n} barcos no oceano de mensagens": "Ya somos {n} barcos en el océano de mensajes",
+  "Já conseguiu o seu presente de indicação? Toque aqui": "¿Ya conseguiste tu regalo por invitar? Toca aquí"
 }

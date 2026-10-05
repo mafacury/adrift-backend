@@ -668,5 +668,17 @@
   "A maré vira em {n} dia — os pontos voltam a zero.": "{n} दिन में ज्वार पलटेगा — अंक फिर शून्य हो जाएँगे।",
   "A maré vira em {n} dias — os pontos voltam a zero.": "{n} दिन में ज्वार पलटेगा — अंक फिर शून्य हो जाएँगे।",
   "🌊 A maré desta semana ainda está parada": "🌊 इस हफ़्ते का ज्वार अभी शांत है",
-  "Os primeiros pontos da semana podem ser seus: cada mensagem que chega ao seu barco conta.": "इस हफ़्ते के पहले अंक आपके हो सकते हैं: आपकी नाव तक पहुँचने वाला हर संदेश गिना जाता है।"
+  "Os primeiros pontos da semana podem ser seus: cada mensagem que chega ao seu barco conta.": "इस हफ़्ते के पहले अंक आपके हो सकते हैं: आपकी नाव तक पहुँचने वाला हर संदेश गिना जाता है।",
+  "{pais}: a {modelo} #{codigo} acaba de zarpar": "{pais}: {modelo} #{codigo} अभी-अभी रवाना हुई",
+  "A {modelo} #{codigo} acaba de receber mais uma mensagem": "{modelo} #{codigo} को अभी-अभी एक और संदेश मिला",
+  "{pais}: tem barco novo no mar": "{pais}: समुद्र में एक नई नाव",
+  "A {modelo} #{codigo} acaba de completar a volta ao mundo: 195 países!": "{modelo} #{codigo} ने अभी-अभी पूरी दुनिया का चक्कर पूरा किया: 195 देश!",
+  "A {modelo} #{codigo} acaba de chegar ao seu {n}º país": "{modelo} #{codigo} अभी-अभी अपने {n}वें देश पहुँची",
+  "{pais}: seu barco #{codigo} acaba de passar por lá": "{pais}: आपकी नाव #{codigo} अभी-अभी वहाँ से गुज़री",
+  "Já são {n} mensagens navegando no oceano do Adrift": "Adrift के महासागर में अब तक {n} संदेश तैर रहे हैं",
+  "{n} mensagens escritas nas últimas 24 horas": "पिछले 24 घंटों में {n} संदेश लिखे गए",
+  "Os barcos do Adrift já passaram por {n} países": "Adrift की नावें अब तक {n} देशों से गुज़र चुकी हैं",
+  "Os barcos do Adrift já navegaram {n} milhas": "Adrift की नावें अब तक {n} मील का सफ़र कर चुकी हैं",
+  "Já somos {n} barcos no oceano de mensagens": "संदेशों के महासागर में अब हम {n} नावें हैं",
+  "Já conseguiu o seu presente de indicação? Toque aqui": "क्या आपको रेफ़रल उपहार मिला? यहाँ टैप करें"
 }

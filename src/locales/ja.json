@@ -668,5 +668,17 @@
   "A maré vira em {n} dia — os pontos voltam a zero.": "{n}日後に潮が変わります — ポイントはゼロに戻ります。",
   "A maré vira em {n} dias — os pontos voltam a zero.": "{n}日後に潮が変わります — ポイントはゼロに戻ります。",
   "🌊 A maré desta semana ainda está parada": "🌊 今週の潮はまだ動いていません",
-  "Os primeiros pontos da semana podem ser seus: cada mensagem que chega ao seu barco conta.": "今週最初のポイントはあなたのものかもしれません。あなたの船に届くメッセージはすべて数えられます。"
+  "Os primeiros pontos da semana podem ser seus: cada mensagem que chega ao seu barco conta.": "今週最初のポイントはあなたのものかもしれません。あなたの船に届くメッセージはすべて数えられます。",
+  "{pais}: a {modelo} #{codigo} acaba de zarpar": "{pais}：{modelo} #{codigo} がいま出航しました",
+  "A {modelo} #{codigo} acaba de receber mais uma mensagem": "{modelo} #{codigo} に新しいメッセージが届きました",
+  "{pais}: tem barco novo no mar": "{pais}：新しい船が海に出ました",
+  "A {modelo} #{codigo} acaba de completar a volta ao mundo: 195 países!": "{modelo} #{codigo} が世界一周を達成：195か国！",
+  "A {modelo} #{codigo} acaba de chegar ao seu {n}º país": "{modelo} #{codigo} が{n}か国目に到着しました",
+  "{pais}: seu barco #{codigo} acaba de passar por lá": "{pais}：あなたの船 #{codigo} がいま立ち寄りました",
+  "Já são {n} mensagens navegando no oceano do Adrift": "Adriftの海を、すでに{n}通のメッセージが旅しています",
+  "{n} mensagens escritas nas últimas 24 horas": "この24時間で{n}通のメッセージが書かれました",
+  "Os barcos do Adrift já passaram por {n} países": "Adriftの船はこれまでに{n}か国を訪れました",
+  "Os barcos do Adrift já navegaram {n} milhas": "Adriftの船はこれまでに{n}マイルを航海しました",
+  "Já somos {n} barcos no oceano de mensagens": "メッセージの海に、もう{n}隻の船が浮かんでいます",
+  "Já conseguiu o seu presente de indicação? Toque aqui": "招待のプレゼントはもう受け取りましたか？ここをタップ"
 }
