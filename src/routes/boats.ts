@@ -18,11 +18,14 @@ import { semBloqueioEntre } from '../services/bloqueio.js';
 interface CreateBoatBody {
   content: string;
   giftId?: string;
+  /** A caixa "permito que minha mensagem seja publicada". Ver migração 043. */
+  publicavel?: boolean;
 }
 
 interface HopBody {
   content?: string;
   giftId?: string;
+  publicavel?: boolean;
 }
 
 export async function boatRoutes(app: FastifyInstance) {
@@ -58,12 +61,17 @@ export async function boatRoutes(app: FastifyInstance) {
     { schema: { body: { type: 'object', required: ['content'], properties: {
       content: { type: 'string', minLength: 1, maxLength: 500 },
       giftId:  { type: 'string', maxLength: 40 },
+      publicavel: { type: 'boolean' },
     } } } },
     async (req: FastifyRequest<{ Body: CreateBoatBody }>, reply: FastifyReply) => {
       const userId = (req as any).user?.id;
       if (!userId) return reply.code(401).send({ error: 'unauthorized' });
 
       const { content, giftId } = req.body;
+      // Três estados (ver migração 043). Ausente — o site antigo, ainda sem a
+      // caixa — vira NULL: a pessoa não foi perguntada. Para a página pública
+      // só o TRUE é licença; o NULL do dono mantém o que ela sempre mostrou.
+      const publicavel = typeof req.body.publicavel === 'boolean' ? req.body.publicavel : null;
 
       // O que se guarda é o texto TRIMADO, não o que chegou: espaço em volta
       // não é mensagem, e era ele que fazia " a " valer três caracteres.
@@ -138,9 +146,9 @@ export async function boatRoutes(app: FastifyInstance) {
         const novoBarco: string = boatResult.rows[0].id;
 
         const msgResult = await c.query(
-          `INSERT INTO boat_messages (boat_id, user_id, content, country_code, gift_id, lang)
-           VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-          [novoBarco, userId, texto, countryCode, gift, idiomaDeQuemEscreve],
+          `INSERT INTO boat_messages (boat_id, user_id, content, country_code, gift_id, lang, publicavel)
+           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+          [novoBarco, userId, texto, countryCode, gift, idiomaDeQuemEscreve, publicavel],
         );
         return { boatId: novoBarco, messageId: msgResult.rows[0].id as string };
       });
@@ -169,6 +177,7 @@ export async function boatRoutes(app: FastifyInstance) {
     { schema: { body: { type: 'object', properties: {
       content: { type: 'string', minLength: 1, maxLength: 500 },
       giftId:  { type: 'string', maxLength: 40 },
+      publicavel: { type: 'boolean' },
     } } } },
     async (req, reply) => {
       const userId = (req as any).user?.id;
@@ -176,6 +185,7 @@ export async function boatRoutes(app: FastifyInstance) {
 
       const boatId = req.params.id;
       const { content, giftId } = req.body ?? {};
+      const publicavel = typeof req.body?.publicavel === 'boolean' ? req.body.publicavel : null;
       const ip = req.ip;
       const countryCode = await countryFromIp(ip);
 
@@ -228,9 +238,9 @@ export async function boatRoutes(app: FastifyInstance) {
 
         if (texto) {
           const msgResult = await c.query(
-            `INSERT INTO boat_messages (boat_id, user_id, content, country_code, gift_id, lang)
-             VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-            [boatId, userId, texto, countryCode, gift, idiomaDeQuemEscreve],
+            `INSERT INTO boat_messages (boat_id, user_id, content, country_code, gift_id, lang, publicavel)
+             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+            [boatId, userId, texto, countryCode, gift, idiomaDeQuemEscreve, publicavel],
           );
           messageId = msgResult.rows[0].id;
           // conteúdo novo = assunto vivo: zera o contador de "deixaram passar"
@@ -298,6 +308,45 @@ export async function boatRoutes(app: FastifyInstance) {
       }
 
       return reply.send({ status: 'sailing' });
+    },
+  );
+
+  // ── POST /boats/:id/imagem ─────────────────────────────────────────────────
+  // O cartão do link compartilhado: o mapa com a rota, desenhado no navegador
+  // do dono (mesmo pergaminho, mesma projeção do Mapa) e guardado aqui para a
+  // página /j/:id oferecer como og:image. Só o dono grava, e só JPEG — o teto
+  // e a assinatura do arquivo são o que impede usar esta rota como depósito.
+  app.post<{ Params: { id: string }; Body: { jpeg: string } }>(
+    '/boats/:id/imagem',
+    { schema: { body: { type: 'object', required: ['jpeg'], properties: {
+      // ~600 KB de JPEG em base64. O desenho de 1200×630 fica em 100–250 KB.
+      jpeg: { type: 'string', maxLength: 820_000 },
+    } } } },
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+
+      const boatId = req.params.id;
+      const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!UUID.test(boatId)) return reply.code(404).send({ error: 'not_found' });
+
+      const { rows } = await pool.query(
+        `SELECT 1 FROM boats WHERE id = $1 AND creator_user_id = $2`, [boatId, userId],
+      );
+      if (!rows.length) return reply.code(404).send({ error: 'not_found' });
+
+      const bytes = Buffer.from(req.body.jpeg.replace(/^data:image\/jpeg;base64,/, ''), 'base64');
+      const ehJpeg = bytes.length > 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+      if (!ehJpeg || bytes.length > 600_000) {
+        return reply.code(400).send({ error: 'imagem_invalida' });
+      }
+
+      await pool.query(
+        `INSERT INTO boat_share_images (boat_id, jpeg, updated_at) VALUES ($1, $2, NOW())
+         ON CONFLICT (boat_id) DO UPDATE SET jpeg = EXCLUDED.jpeg, updated_at = NOW()`,
+        [boatId, bytes],
+      );
+      return reply.send({ ok: true });
     },
   );
 
