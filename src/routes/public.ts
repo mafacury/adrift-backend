@@ -247,7 +247,10 @@ export async function publicRoutes(app: FastifyInstance) {
       ((b.archived_at ? new Date(b.archived_at) : new Date()).getTime()
         - new Date(b.created_at).getTime()) / 86_400_000,
     ));
-    const codigo = String(b.id).slice(0, 5).toUpperCase();
+    // Os ÚLTIMOS cinco, como no app ("Barco #…" do Mapa) e no avião de
+    // notícias. Eram os cinco primeiros: o mesmo barco tinha um código na tela
+    // e outro no link compartilhado.
+    const codigo = String(b.id).slice(-5).toUpperCase();
     const modelo = ESTAGIO[b.stage] ?? 'Novata';
     const emCasa = b.status === 'archived';
     const selo = emCasa
