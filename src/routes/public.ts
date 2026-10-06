@@ -6,12 +6,17 @@
  * Mostra a VIAGEM: por onde o barco passou, quantos países, quantas milhas,
  * quantos dias, quantas pessoas escreveram.
  *
- * NÃO mostra o texto das mensagens. Quem escreveu para um barco do Adrift
- * escreveu para um objeto que passa de mão em mão entre estranhos — não para
- * uma página aberta na internet, indexável, que fica de pé para sempre. Essas
- * pessoas não estão aqui para consentir, e a diferença entre "sessenta pessoas
- * leram" e "qualquer um com o link lê" é a diferença entre correspondência e
+ * NÃO mostra o texto das mensagens — a não ser as de quem deu licença.
+ * Quem escreveu para um barco do Adrift escreveu para um objeto que passa de
+ * mão em mão entre estranhos — não para uma página aberta na internet, que
+ * fica de pé para sempre. A diferença entre "sessenta pessoas leram" e
+ * "qualquer um com o link lê" é a diferença entre correspondência e
  * publicação.
+ *
+ * Desde 06/10/2026 cada mensagem nasce com a caixa "permito que minha mensagem
+ * seja publicada no contexto do Adrift" (boat_messages.publicavel, migração
+ * 043). Só as marcadas aparecem aqui, e ainda assim só as que passaram pela
+ * moderação, não foram denunciadas por ninguém e não são de conta banida.
  *
  * E, na prática, o mapa é o que se compartilha bem. Ninguém posta parede de
  * texto; posta a rota que cruzou o mundo.
@@ -33,6 +38,7 @@ import { COUNTRY_LANG } from '../services/country-data.js';
 import { GIFTS } from '../services/gifts.js';
 import { assinaturaDoDiario, paginaDeSaida } from '../services/diario.js';
 import { idiomaSuportado } from '../services/i18n.js';
+import { semBloqueioEntre } from '../services/bloqueio.js';
 
 const APP_URL = process.env.APP_URL ?? 'https://adriftapp.fun';
 
@@ -107,6 +113,27 @@ export async function publicRoutes(app: FastifyInstance) {
     return reply.code(ok ? 200 : 400).type('text/html; charset=utf-8').send(paginaDeSaida(lang, ok));
   });
 
+  // ── GET /j/:id/imagem.jpg ──────────────────────────────────────────────────
+  // O mapa com a rota, para o cartão do link (og:image). Desenhado no navegador
+  // do dono e guardado por POST /boats/:id/imagem. Mesmas portas da página:
+  // id inadivinhável, e barco recolhido pela moderação não mostra nada.
+  app.get<{ Params: { id: string } }>('/j/:id/imagem.jpg', async (req, reply) => {
+    const { id } = req.params;
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return reply.code(404).send();
+    const { rows } = await pool.query(
+      `SELECT i.jpeg FROM boat_share_images i JOIN boats b ON b.id = i.boat_id
+        WHERE i.boat_id = $1 AND b.archive_reason IS DISTINCT FROM 'moderado'`,
+      [id],
+    );
+    if (!rows.length) return reply.code(404).send();
+    // Curto de propósito: a imagem é regravada a cada compartilhamento, e o
+    // barco que ganhou país novo hoje não pode seguir com o mapa de ontem.
+    return reply
+      .header('Cache-Control', 'public, max-age=600')
+      .type('image/jpeg')
+      .send(rows[0].jpeg as Buffer);
+  });
+
   app.get<{ Params: { id: string } }>('/j/:id', async (req, reply) => {
     const { id } = req.params;
 
@@ -150,16 +177,48 @@ export async function publicRoutes(app: FastifyInstance) {
     );
 
     // A mensagem inicial é do DONO do barco — as palavras dele, publicadas por
-    // ele. É a única frase que a página pode mostrar sem pedir licença a
-    // ninguém, e é a que dá contexto a todo o resto.
-    const { rows: inicial } = await pool.query(
-      `SELECT m.content, c.name_pt AS pais
+    // ele. Aparece a menos que ele tenha DESMARCADO a caixa ao lançar: o NULL
+    // (barco de antes da caixa) mantém o que esta página sempre mostrou.
+    const { rows: inicialBruta } = await pool.query(
+      `SELECT m.content, c.name_pt AS pais, m.publicavel
          FROM boat_messages m
          JOIN boats b ON b.id = m.boat_id
          LEFT JOIN countries c ON c.code = m.country_code
         WHERE m.boat_id = $1 AND m.user_id = b.creator_user_id
         ORDER BY m.created_at ASC LIMIT 1`,
       [id],
+    );
+    const inicial = inicialBruta.filter((m) => m.publicavel !== false);
+
+    // As palavras dos outros, só com licença. Cada trava é um motivo:
+    //  · publicavel IS TRUE — a pessoa marcou a caixa (NULL não basta);
+    //  · aprovada na moderação — nada que ainda esteja sendo julgado;
+    //  · ninguém denunciou — uma denúncia basta para sair da vitrine;
+    //  · conta não banida, e sem bloqueio entre ela e o dono do barco.
+    // Teto de 60: a página é um cartão de visita, não o diário de bordo.
+    const { rows: publicadas } = await pool.query(
+      `SELECT m.content, c.name_pt AS pais
+         FROM boat_messages m
+         JOIN boats b ON b.id = m.boat_id
+         JOIN users u ON u.id = m.user_id
+         LEFT JOIN countries c ON c.code = m.country_code
+        WHERE m.boat_id = $1
+          AND m.user_id <> b.creator_user_id
+          AND m.publicavel IS TRUE
+          AND u.ban_status <> 'banned'
+          AND EXISTS (SELECT 1 FROM moderation_log ml
+                       WHERE ml.message_id = m.id AND ml.verdict = 'approved')
+          AND NOT EXISTS (SELECT 1 FROM reports r WHERE r.message_id = m.id)
+          AND ${semBloqueioEntre('b.creator_user_id', 'm.user_id')}
+        ORDER BY m.created_at ASC
+        LIMIT 60`,
+      [id],
+    );
+
+    // O cartão do link: o mapa com a rota, se o dono já compartilhou pelo app
+    // novo; senão, o logotipo de sempre.
+    const { rows: temImagem } = await pool.query(
+      `SELECT EXTRACT(EPOCH FROM updated_at)::bigint AS v FROM boat_share_images WHERE boat_id = $1`, [id],
     );
 
     // Quantos idiomas o barco atravessou. Textura de verdade sem publicar
@@ -201,9 +260,14 @@ export async function publicRoutes(app: FastifyInstance) {
       `${milhas.toLocaleString('pt-BR')} milhas náuticas e ` +
       `${b.escreveram} ${b.escreveram === 1 ? 'pessoa que escreveu' : 'pessoas que escreveram'}.`;
 
+    const origem = origemDoPedido(req);
     return reply.type('text/html; charset=utf-8').send(
       paginaJornada({
-        url: `${origemDoPedido(req)}/j/${id}`,
+        url: `${origem}/j/${id}`,
+        // `?v=` muda a cada novo desenho: WhatsApp e Facebook guardam o cartão
+        // pela URL da imagem, e sem isso o mapa de ontem ficaria preso lá.
+        imagem: temImagem.length ? `${origem}/j/${id}/imagem.jpg?v=${temImagem[0].v}` : null,
+        publicadas: publicadas.map((m) => ({ texto: m.content as string, pais: (m.pais as string) ?? null })),
         titulo, resumo, codigo, modelo, selo, emCasa, dias,
         paises: b.unique_countries ?? 0,
         milhas,
@@ -226,6 +290,10 @@ export async function publicRoutes(app: FastifyInstance) {
 interface Dados {
   /** O endereço desta própria página, como ela foi pedida. Ver origemDoPedido. */
   url: string;
+  /** O mapa com a rota (og:image), ou null se o dono nunca compartilhou pelo app novo. */
+  imagem: string | null;
+  /** Mensagens de terceiros com licença de publicação. */
+  publicadas: { texto: string; pais: string | null }[];
   titulo: string; resumo: string; codigo: string; modelo: string; selo: string;
   emCasa: boolean; dias: number; paises: number; milhas: number;
   escreveram: number; portos: string[]; idiomas: number;
@@ -266,10 +334,12 @@ function paginaJornada(d: Dados): string {
 <meta property="og:type" content="article">
 <meta property="og:title" content="${esc(d.titulo)}">
 <meta property="og:description" content="${esc(d.resumo)}">
-<meta property="og:image" content="${APP_URL}/logo-email.png">
+<meta property="og:image" content="${esc(d.imagem ?? `${APP_URL}/logo-email.png`)}">
+${d.imagem ? `<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">` : ''}
 <meta property="og:site_name" content="Adrift">
 <meta property="og:url" content="${esc(d.url)}">
-<meta name="twitter:card" content="summary">
+<meta name="twitter:card" content="${d.imagem ? 'summary_large_image' : 'summary'}">
 <link rel="canonical" href="${esc(d.url)}">
 </head>
 <body style="margin:0;background:#0B1A2E;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
@@ -279,6 +349,10 @@ function paginaJornada(d: Dados): string {
       <a href="${APP_URL}"><img src="${APP_URL}/logo-email.png" alt="Adrift" width="130"
          style="width:130px;max-width:50%;height:auto;border:0"></a>
     </p>
+
+    ${d.imagem ? `
+    <img src="${esc(d.imagem)}" alt="Rota do barco #${esc(d.codigo)} no mapa"
+         style="display:block;width:100%;height:auto;border-radius:18px;margin:0 0 16px">` : ''}
 
     <div style="background:#F7F3EA;border-radius:18px;padding:26px 24px">
 
@@ -324,11 +398,23 @@ function paginaJornada(d: Dados): string {
         color:#8A6A10;border-radius:20px;padding:5px 12px;margin:0 5px 7px 0;font-size:12.5px">
         ${esc(g.emoji)} ${esc(g.nome)}${g.quantos > 1 ? ` ×${g.quantos}` : ''}</span>`).join('')}</div>` : ''}
 
+      ${d.publicadas.length ? `
+      <p style="margin:22px 0 10px;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:#7A96A8">
+        Escreveram pelo caminho
+      </p>
+      ${d.publicadas.map((m) => `
+      <div style="background:rgba(23,69,107,.05);border-radius:10px;padding:12px 14px;margin-bottom:8px">
+        <div style="font-size:14px;line-height:21px;color:#17456B;font-style:italic">&ldquo;${esc(m.texto)}&rdquo;</div>
+        ${m.pais ? `<div style="font-size:11.5px;color:#7A96A8;margin-top:5px">— de ${esc(m.pais)}</div>` : ''}
+      </div>`).join('')}` : ''}
+
+      ${d.escreveram > d.publicadas.length ? `
       <p style="margin:22px 0 0;font-size:13px;line-height:20px;color:#5A7185;
          padding-top:16px;border-top:1px solid rgba(23,69,107,.12)">
-        As outras ${d.escreveram} mensagens ficam com o barco. Elas foram escritas
-        para quem o encontrasse no mar — e só se publica palavra de quem disse que pode.
-      </p>
+        ${d.publicadas.length ? 'As outras' : 'As'} ${d.escreveram - d.publicadas.length}
+        ${d.escreveram - d.publicadas.length === 1 ? 'mensagem fica' : 'mensagens ficam'} com o barco.
+        Foram escritas para quem o encontrasse no mar — e só se publica palavra de quem disse que pode.
+      </p>` : ''}
 
     </div>
 
