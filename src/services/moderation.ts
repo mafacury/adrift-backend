@@ -19,7 +19,7 @@ const BLOCKLIST_PATTERNS: RegExp[] = [
   /\b(viado|buceta|puta\s+que\s+pariu)\b/i,
 ];
 
-function blocklist(text: string): boolean {
+export function blocklist(text: string): boolean {
   return BLOCKLIST_PATTERNS.some((re) => re.test(text));
 }
 
@@ -67,7 +67,7 @@ function pareceTelefone(texto: string): boolean {
 }
 
 /** Devolve o tipo de contato encontrado, ou null. */
-function dadoDeContato(texto: string): string | null {
+export function dadoDeContato(texto: string): string | null {
   for (const c of CONTATO) if (c.re.test(texto)) return c.nome;
   if (pareceTelefone(texto)) return 'telefone';
   return null;

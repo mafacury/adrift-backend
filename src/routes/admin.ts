@@ -5,6 +5,7 @@ import { avisarBanimento } from '../services/enforcement.js';
 import { limparCacheDeAjustes } from '../services/ajustes.js';
 import { STAGE_CASE_SQL } from '../services/progress.js';
 import { novidadesDe, mandarDiario } from '../services/diario.js';
+import { avaliarRisco } from '../services/risco.js';
 
 // Middleware shared by all admin routes
 async function requireAdmin(req: FastifyRequest, reply: FastifyReply) {
@@ -12,6 +13,27 @@ async function requireAdmin(req: FastifyRequest, reply: FastifyReply) {
   if (!user?.id) return reply.code(401).send({ error: 'unauthorized' });
   if (user.role !== 'admin') return reply.code(403).send({ error: 'forbidden' });
 }
+
+/**
+ * O texto da caixa "Busca" da moderação, pronto para um ILIKE — ou null.
+ *
+ * O `#` da frente sai porque o painel mostra o barco como "#AB12C" e é assim
+ * que se vai copiar. `%` e `_` são escapados: sem isso, buscar "100%" casaria
+ * com tudo.
+ */
+function padraoDeBusca(q: string | undefined): string | null {
+  const t = (q ?? '').trim().replace(/^#/, '');
+  if (!t) return null;
+  return '%' + t.replace(/[\\%_]/g, (c) => '\\' + c) + '%';
+}
+
+/**
+ * Quantas mensagens a régua de risco lê quando o filtro "risco N ou mais"
+ * está ligado. A nota é calculada aqui no servidor, não no banco, então
+ * filtrar por ela obriga a ler e pontuar antes de paginar. As mais recentes
+ * primeiro; o painel avisa quando o teto foi atingido.
+ */
+const TETO_DO_FILTRO_DE_RISCO = 5000;
 
 export async function adminRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireAdmin);
@@ -443,7 +465,7 @@ export async function adminRoutes(app: FastifyInstance) {
   );
 
   // ── GET /admin/boats ───────────────────────────────────────────────────────
-  app.get<{ Querystring: { page?: string; limit?: string; status?: string; search?: string } }>(
+  app.get<{ Querystring: { page?: string; limit?: string; status?: string; search?: string; q?: string } }>(
     '/admin/boats',
     async (req, reply) => {
       const page   = Math.max(1, parseInt(req.query.page  ?? '1', 10));
@@ -451,6 +473,9 @@ export async function adminRoutes(app: FastifyInstance) {
       const offset = (page - 1) * limit;
       const status = req.query.status ?? null;
       const search = req.query.search ?? null;   // busca por e-mail do criador
+      // a Busca da moderação: e-mail, código do barco ou texto de qualquer
+      // mensagem dele
+      const q = padraoDeBusca(req.query.q);
 
       const { rows } = await pool.query(
         `SELECT
@@ -466,17 +491,21 @@ export async function adminRoutes(app: FastifyInstance) {
          JOIN users u ON u.id = b.creator_user_id
          WHERE ($1::text IS NULL OR b.status = $1)
            AND ($4::text IS NULL OR u.email ILIKE '%' || $4 || '%')
+           AND ($5::text IS NULL OR u.email ILIKE $5 OR b.id::text ILIKE $5
+                OR EXISTS (SELECT 1 FROM boat_messages WHERE boat_id = b.id AND content ILIKE $5))
          ORDER BY b.created_at DESC
          LIMIT $2 OFFSET $3`,
-        [status, limit, offset, search],
+        [status, limit, offset, search, q],
       );
 
       const { rows: cnt } = await pool.query(
         `SELECT COUNT(*)::int AS total
          FROM boats b JOIN users u ON u.id = b.creator_user_id
          WHERE ($1::text IS NULL OR b.status = $1)
-           AND ($2::text IS NULL OR u.email ILIKE '%' || $2 || '%')`,
-        [status, search],
+           AND ($2::text IS NULL OR u.email ILIKE '%' || $2 || '%')
+           AND ($3::text IS NULL OR u.email ILIKE $3 OR b.id::text ILIKE $3
+                OR EXISTS (SELECT 1 FROM boat_messages WHERE boat_id = b.id AND content ILIKE $3))`,
+        [status, search, q],
       );
 
       return reply.send({ boats: rows, total: cnt[0].total, page, limit });
@@ -529,15 +558,22 @@ export async function adminRoutes(app: FastifyInstance) {
   );
 
   // ── GET /admin/messages ────────────────────────────────────────────────────
-  app.get<{ Querystring: { page?: string; limit?: string } }>(
+  // `q`     — Busca: texto da mensagem, e-mail do autor ou código do barco.
+  // `risco` — só as de nota N ou mais (1 a 5, ver services/risco.ts).
+  //
+  // Toda mensagem volta com `risco` (a nota) e `sinais` (o que a acendeu).
+  app.get<{ Querystring: { page?: string; limit?: string; q?: string; risco?: string } }>(
     '/admin/messages',
     async (req, reply) => {
       const page   = Math.max(1, parseInt(req.query.page  ?? '1', 10));
       const limit  = Math.min(50, parseInt(req.query.limit ?? '20', 10));
       const offset = (page - 1) * limit;
+      const q      = padraoDeBusca(req.query.q);
+      const minimo = Math.min(5, Math.max(1, parseInt(req.query.risco ?? '1', 10) || 1));
 
-      const { rows } = await pool.query(
-        `SELECT
+      const ONDE = `($1::text IS NULL OR bm.content ILIKE $1 OR u.email ILIKE $1 OR b.id::text ILIKE $1)`;
+      const SELECT = `
+        SELECT
            bm.id, bm.content, bm.country_code, bm.created_at,
            b.id AS boat_id, b.stage,
            u.email AS author_email,
@@ -545,16 +581,38 @@ export async function adminRoutes(app: FastifyInstance) {
          FROM boat_messages bm
          JOIN boats b ON b.id = bm.boat_id
          JOIN users u ON u.id = bm.user_id
-         ORDER BY bm.created_at DESC
-         LIMIT $1 OFFSET $2`,
-        [limit, offset],
-      );
+         WHERE ${ONDE}
+         ORDER BY bm.created_at DESC`;
+      const comNota = (r: any) => {
+        const { nivel, sinais } = avaliarRisco(r.content);
+        return { ...r, risco: nivel, sinais };
+      };
 
-      const { rows: cnt } = await pool.query(
-        'SELECT COUNT(*)::int AS total FROM boat_messages',
-      );
+      // Sem filtro de risco: paginação no banco, como sempre foi.
+      if (minimo <= 1) {
+        const { rows } = await pool.query(`${SELECT} LIMIT $2 OFFSET $3`, [q, limit, offset]);
+        const { rows: cnt } = await pool.query(
+          `SELECT COUNT(*)::int AS total
+             FROM boat_messages bm
+             JOIN boats b ON b.id = bm.boat_id
+             JOIN users u ON u.id = bm.user_id
+            WHERE ${ONDE}`,
+          [q],
+        );
+        return reply.send({ messages: rows.map(comNota), total: cnt[0].total, page, limit });
+      }
 
-      return reply.send({ messages: rows, total: cnt[0].total, page, limit });
+      // Com filtro: a nota não existe no banco, então lê as mais recentes,
+      // pontua todas e só então pagina.
+      const { rows } = await pool.query(`${SELECT} LIMIT $2`, [q, TETO_DO_FILTRO_DE_RISCO]);
+      const filtradas = rows.map(comNota).filter((r) => r.risco >= minimo);
+      return reply.send({
+        messages: filtradas.slice(offset, offset + limit),
+        total: filtradas.length,
+        page, limit,
+        lidas: rows.length,
+        teto: rows.length >= TETO_DO_FILTRO_DE_RISCO,
+      });
     },
   );
 
@@ -568,12 +626,17 @@ export async function adminRoutes(app: FastifyInstance) {
   );
 
   // ── GET /admin/reports ─────────────────────────────────────────────────────
-  app.get<{ Querystring: { page?: string; limit?: string } }>(
+  app.get<{ Querystring: { page?: string; limit?: string; q?: string } }>(
     '/admin/reports',
     async (req, reply) => {
       const page   = Math.max(1, parseInt(req.query.page  ?? '1', 10));
       const limit  = Math.min(50, parseInt(req.query.limit ?? '20', 10));
       const offset = (page - 1) * limit;
+      // Busca: texto denunciado, e-mail de quem denunciou ou de quem escreveu,
+      // código do barco
+      const q      = padraoDeBusca(req.query.q);
+      const ONDE   = `($1::text IS NULL OR bm.content ILIKE $1 OR ru.email ILIKE $1
+                       OR mu.email ILIKE $1 OR b.id::text ILIKE $1)`;
 
       const { rows } = await pool.query(
         `SELECT
@@ -587,16 +650,28 @@ export async function adminRoutes(app: FastifyInstance) {
          JOIN users ru ON ru.id = r.reporter_user_id
          JOIN users mu ON mu.id = bm.user_id
          JOIN boats b  ON b.id  = bm.boat_id
+         WHERE ${ONDE}
          ORDER BY r.created_at DESC
-         LIMIT $1 OFFSET $2`,
-        [limit, offset],
+         LIMIT $2 OFFSET $3`,
+        [q, limit, offset],
       );
 
       const { rows: cnt } = await pool.query(
-        'SELECT COUNT(*)::int AS total FROM reports',
+        `SELECT COUNT(*)::int AS total
+           FROM reports r
+           JOIN boat_messages bm ON bm.id = r.message_id
+           JOIN users ru ON ru.id = r.reporter_user_id
+           JOIN users mu ON mu.id = bm.user_id
+           JOIN boats b  ON b.id  = bm.boat_id
+          WHERE ${ONDE}`,
+        [q],
       );
 
-      return reply.send({ reports: rows, total: cnt[0].total, page, limit });
+      const comNota = rows.map((r: any) => {
+        const { nivel, sinais } = avaliarRisco(r.message_content);
+        return { ...r, risco: nivel, sinais };
+      });
+      return reply.send({ reports: comNota, total: cnt[0].total, page, limit });
     },
   );
 
