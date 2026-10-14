@@ -126,33 +126,47 @@ function semRepeticao(s: string): string {
 }
 
 interface Termo { rotulo: string; re: RegExp; reCurto: RegExp | null }
+interface Lista { termos: Termo[]; peneira: RegExp; peneiraCurta: RegExp | null }
 
-function compilar(lista: string[]): Termo[] {
-  return lista.map((t) => {
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s+');
+const palavra = (miolo: string) =>
+  new RegExp(`(?:^|[^\\p{L}\\p{N}])(?:${miolo})(?=$|[^\\p{L}\\p{N}])`, 'u');
+
+function compilar(lista: string[]): Lista {
+  const termos = lista.map((t) => {
     const prefixo = t.endsWith('*');
     const base = prefixo ? t.slice(0, -1) : t;
     const fim = prefixo ? '\\p{L}*' : '';
-    const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s+');
-    const re = new RegExp(`(?:^|[^\\p{L}\\p{N}])${esc(base)}${fim}(?=$|[^\\p{L}\\p{N}])`, 'u');
+    const re = palavra(esc(base) + fim);
     // Letra esticada ("fuuuuck") só é testada em termo que, sem repetição,
     // continua com 4+ letras: "ass" viraria "as" e acenderia no artigo.
     const curto = semRepeticao(base);
-    const reCurto = curto.replace(/ /g, '').length >= 4 && curto !== base
-      ? new RegExp(`(?:^|[^\\p{L}\\p{N}])${esc(curto)}${fim}(?=$|[^\\p{L}\\p{N}])`, 'u')
-      : curto.replace(/ /g, '').length >= 4
-        ? re
-        : null;
-    return { rotulo: base, re, reCurto };
+    const mioloCurto = curto.replace(/ /g, '').length < 4 ? null : esc(curto) + fim;
+    const reCurto = !mioloCurto ? null : curto === base ? re : palavra(mioloCurto);
+    return { rotulo: base, re, reCurto, miolo: esc(base) + fim, mioloCurto };
   });
+  // A peneira: a lista inteira numa expressão só. Quase toda mensagem é limpa
+  // e para nela; o termo a termo (que dá o nome do que acendeu) só roda
+  // quando ela acusa algo. Sem isto, pontuar as ~19 mil mensagens do banco
+  // levava 2,5 s.
+  const curtos = termos.map((t) => t.mioloCurto).filter(Boolean);
+  return {
+    termos: termos.map(({ rotulo, re, reCurto }) => ({ rotulo, re, reCurto })),
+    peneira: palavra(termos.map((t) => t.miolo).join('|')),
+    peneiraCurta: curtos.length ? palavra(curtos.join('|')) : null,
+  };
 }
 
 const T_PESADO = compilar(PESADO);
 const T_MEDIO  = compilar(MEDIO);
 const T_LEVE   = compilar(LEVE);
 
-function achados(lista: Termo[], texto: string, textoSemRep: string): string[] {
+function achados(lista: Lista, texto: string, textoSemRep: string): string[] {
+  if (!lista.peneira.test(texto) && !(lista.peneiraCurta && lista.peneiraCurta.test(textoSemRep))) {
+    return [];
+  }
   const out: string[] = [];
-  for (const t of lista) {
+  for (const t of lista.termos) {
     if (t.re.test(texto) || (t.reCurto && t.reCurto.test(textoSemRep))) out.push(t.rotulo);
   }
   return out;

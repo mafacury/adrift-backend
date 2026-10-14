@@ -33,7 +33,7 @@ function padraoDeBusca(q: string | undefined): string | null {
  * filtrar por ela obriga a ler e pontuar antes de paginar. As mais recentes
  * primeiro; o painel avisa quando o teto foi atingido.
  */
-const TETO_DO_FILTRO_DE_RISCO = 5000;
+const TETO_DO_FILTRO_DE_RISCO = 30000;
 
 export async function adminRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireAdmin);
@@ -602,16 +602,35 @@ export async function adminRoutes(app: FastifyInstance) {
         return reply.send({ messages: rows.map(comNota), total: cnt[0].total, page, limit });
       }
 
-      // Com filtro: a nota não existe no banco, então lê as mais recentes,
-      // pontua todas e só então pagina.
-      const { rows } = await pool.query(`${SELECT} LIMIT $2`, [q, TETO_DO_FILTRO_DE_RISCO]);
-      const filtradas = rows.map(comNota).filter((r) => r.risco >= minimo);
+      // Com filtro: a nota não existe no banco, então lê só id e texto das
+      // mais recentes (leve), pontua todas, e busca o resto — e-mail, barco,
+      // denúncias — apenas das 15 que vão aparecer na página.
+      const { rows: textos } = await pool.query(
+        `SELECT bm.id, bm.content
+           FROM boat_messages bm
+           JOIN boats b ON b.id = bm.boat_id
+           JOIN users u ON u.id = bm.user_id
+          WHERE ${ONDE}
+          ORDER BY bm.created_at DESC
+          LIMIT $2`,
+        [q, TETO_DO_FILTRO_DE_RISCO],
+      );
+      const ids = textos
+        .filter((r: any) => avaliarRisco(r.content).nivel >= minimo)
+        .map((r: any) => r.id);
+      const daPagina = ids.slice(offset, offset + limit);
+      const { rows } = daPagina.length
+        ? await pool.query(
+            SELECT.replace(`WHERE ${ONDE}`, 'WHERE bm.id = ANY($1::uuid[])'),
+            [daPagina],
+          )
+        : { rows: [] };
       return reply.send({
-        messages: filtradas.slice(offset, offset + limit),
-        total: filtradas.length,
+        messages: rows.map(comNota),
+        total: ids.length,
         page, limit,
-        lidas: rows.length,
-        teto: rows.length >= TETO_DO_FILTRO_DE_RISCO,
+        lidas: textos.length,
+        teto: textos.length >= TETO_DO_FILTRO_DE_RISCO,
       });
     },
   );
